@@ -23,7 +23,7 @@ The file needs to be hosted locally to bypass browser restrictions and communica
 3. In the **Mappings** section, click the folder icon and select the folder where you saved `index.html`.
 4. In the **PATH** field, enter a subfolder name (e.g., `YTM`).
 5. Check **Auto Start** and click **Start Server**.
-*Your player is now accessible at `http://localhost:7474/YTM/`*
+*Your player is now accessible at `http://localhost:7474/YTM/index.html`*
 
 ### Step 3: Streamer.bot WebSocket Server
 This is required for chat commands to communicate with the web player.
@@ -43,7 +43,7 @@ This is required for chat commands to communicate with the web player.
 </details>
 
 ### Step 5: Final Configuration
-1. Open your browser and go to `http://localhost:7474/YTM/` (or whatever you set up in Step 2).
+1. Open your browser and go to `http://localhost:7474/YTM/index.html` (or whatever you set up in Step 2).
 2. Follow the built-in, interactive tutorial.
 3. You will need a **free YouTube Data API v3 key** from Google Cloud Console (instructions provided inside the app).
 
