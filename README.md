@@ -14,7 +14,7 @@ A dynamic, self-hosted YouTube Music player and Song Request system built specif
 ## 📥 Installation & Setup
 
 ### Step 1: Download the file
-Download the latest `index.html``favicon.ico` files from the [Releases](https://github.com/) tab *(Note: remember to update this link to your actual releases page)* and save it in a dedicated folder on your PC (e.g., `C:\StreamerBot\YTM\`).
+Download the latest `index.html``favicon.ico` files from the [Releases](https://github.com/](https://github.com/xHackMe/ytm-song-request-streamerbot) tab *(Note: remember to update this link to your actual releases page)* and save it in a dedicated folder on your PC (e.g., `C:\StreamerBot\YTM\`).
 
 ### Step 2: Streamer.bot HTTP Server
 The file needs to be hosted locally to bypass browser restrictions and communicate with the API properly.
