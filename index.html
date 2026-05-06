@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>YTM Song Request 1.0.0a</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    
+    <style>
+        :root { 
+            --bg: #0f0f12; --panel: #1a1a1f; --accent: #00d4ff; --gold: #ffcc00; --red: #ff4d4d; --text: #e0e0e0;
+            --twitch: #9146ff; --manual: #0088ff; 
+        }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; flex-direction: column; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f0f12; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        .top-section { display: flex; flex-grow: 1; transition: height 0.3s; overflow: hidden; }
+        
+        .panel { width: 480px; background: var(--panel); display: flex; flex-direction: column; border: 1px solid #333; flex-shrink: 0; }
+        .main { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; background: #0b0b0d; position: relative; min-width: 500px; padding-top: 20px; overflow-y: auto;}
+        
+        .header { padding: 15px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; background: #222; border-bottom: 1px solid #333; letter-spacing: 1px; color: var(--gold); }
+        .list-count { background: rgba(255, 204, 0, 0.15); color: var(--gold); padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 900; white-space: nowrap; }
+        
+        #base-search { width: 100%; background: #0b0b0d; border: 1px solid #444; color: #fff; padding: 10px 12px; border-radius: 6px; outline: none; box-sizing: border-box; transition: 0.2s; }
+        #base-search:focus { border-color: var(--accent) !important; box-shadow: 0 0 8px rgba(0, 212, 255, 0.3); }
+
+        .list-container { overflow-y: auto; flex-grow: 1; padding: 10px; margin-bottom: 15px; }
+        
+        .q-item { padding: 12px; background: #25252b; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid #444; display: flex; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: background 0.2s; position: relative; }
+        .q-item:hover { background: #2d2d35; }
+        .q-item.request { border-left-color: var(--twitch); background: #24143d; } 
+        .q-item.manual { border-left-color: var(--manual); background: #0c1c3a; }  
+        .q-item.next { border-left-color: #00ff88; background: #1a3a2a; }          
+        
+        @keyframes slideIn { from { transform: translateX(-50px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .animate-in { animation: slideIn 0.4s ease-out forwards; }
+
+        #now-playing-box { background: #111; border-bottom: 2px solid #222; padding: 10px; z-index: 10; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .q-item.playing { border: 1px solid var(--gold); border-left: 4px solid var(--gold); background: #26261a; box-shadow: 0 0 15px rgba(255, 204, 0, 0.15); margin-bottom: 0; }
+        .q-item img { width: 60px; height: 40px; object-fit: cover; margin-right: 12px; border-radius: 4px; border: 1px solid #444; }
+        .q-item[draggable="true"] { cursor: grab; }
+        .q-item[draggable="true"]:active { cursor: grabbing; }
+        
+        .eq-block { display: flex; align-items: flex-end; justify-content: center; width: 30px; height: 20px; margin-right: 10px; gap: 3px; }
+        .eq-bar { width: 4px; background: var(--gold); border-radius: 2px; animation: eq-anim 0.5s ease-in-out infinite alternate; }
+        .eq-bar:nth-child(1) { animation-delay: 0.1s; }
+        .eq-bar:nth-child(2) { animation-delay: 0.3s; animation-duration: 0.7s; }
+        .eq-bar:nth-child(3) { animation-delay: 0.0s; animation-duration: 0.6s; }
+        .eq-bar:nth-child(4) { animation-delay: 0.2s; animation-duration: 0.4s; }
+        @keyframes eq-anim { 0% { height: 4px; } 100% { height: 20px; } }
+
+        .q-item.compact { padding: 6px 10px; margin-bottom: 4px; border-left-width: 3px; cursor: default; }
+        .q-item.compact img { width: 45px; height: 30px; margin-right: 10px; }
+        .q-item.compact .track-title { font-size: 0.8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .q-item.compact .track-meta { font-size: 0.65em; }
+        .q-item.compact .btn-add { padding: 6px 12px; font-size: 1.1em; cursor: pointer; }
+
+        .track-num { font-weight: 900; color: #888; font-size: 0.9em; min-width: 25px; text-align: right; margin-right: 10px; }
+        .q-item.request .track-num { color: var(--twitch); }
+        .q-item.manual .track-num { color: var(--manual); }
+        .q-item.next .track-num { color: #00ff88; }
+        
+        .track-info { flex-grow: 1; overflow: hidden; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+        .track-title { font-weight: bold; font-size: 0.85em; white-space: normal; line-height: 1.3; color: #fff; padding-right: 55px; } 
+        .track-meta { font-size: 0.75em; color: #aaa; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+        
+        .badge { background: rgba(0, 212, 255, 0.2); color: var(--accent); padding: 3px 6px; border-radius: 4px; font-weight: bold; }
+        .badge-author { background: rgba(255, 255, 255, 0.1); color: #ccc; }
+        .badge-auto { background: rgba(255, 204, 0, 0.15); color: var(--gold); }
+        .badge-user { background: rgba(145, 70, 255, 0.2); color: #bf94ff; } 
+        .badge-manual { background: rgba(0, 136, 255, 0.2); color: #00d4ff; } 
+        .badge-time { background: rgba(255, 255, 255, 0.08); color: #bbb; font-family: monospace; }
+        
+        .btn-remove { position: absolute; right: 5px; top: 15px; background: transparent; color: #666; border: none; cursor: pointer; font-size: 1.1em; padding: 5px; transition: 0.2s; border-radius: 4px; }
+        .btn-remove:hover { color: var(--red); background: rgba(255, 77, 77, 0.15); transform: scale(1.1); }
+        
+        .btn-ban { position: absolute; right: 35px; top: 15px; background: transparent; color: #666; border: none; cursor: pointer; font-size: 1.1em; padding: 5px; transition: 0.2s; border-radius: 4px; }
+        .btn-ban:hover { color: var(--gold); background: rgba(255, 204, 0, 0.15); transform: scale(1.1); }
+
+        .config-panel { width: 90%; max-width: 800px; background: #15151a; border: 1px solid #333; border-radius: 12px; padding: 15px 25px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5); box-sizing: border-box; flex-wrap: wrap; gap: 15px;}
+        .config-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .config-label { font-size: 0.75em; color: #888; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .btn-config { background: #222; border: 1px solid #444; color: var(--text); padding: 8px 15px; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
+        .btn-config:hover { background: #333; border-color: var(--accent); color: #fff; transform: translateY(-2px); }
+        .btn-config.highlight { color: var(--accent); border-color: var(--accent); }
+
+        .switch-large { position: relative; display: inline-block; width: 60px; height: 30px; }
+        .switch-large input { opacity: 0; width: 0; height: 0; }
+        .slider-large { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #444; transition: .4s; border-radius: 30px; }
+        .slider-large:before { position: absolute; content: ""; height: 22px; width: 22px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.5);}
+        .switch-large input:checked + .slider-large { background-color: #00ff88; box-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
+        .switch-large input:checked + .slider-large:before { transform: translateX(30px); }
+
+        .ws-input-box { display: flex; align-items: center; background: #0b0b0d; border: 1px solid #444; border-radius: 6px; overflow: hidden; }
+        .ws-input-box input { background: transparent; border: none; color: #fff; padding: 6px 10px; width: 60px; text-align: center; font-family: monospace; outline: none; }
+        .ws-input-box button { background: var(--manual); color: #fff; border: none; padding: 6px 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .ws-input-box button:hover { background: #fff; color: #000; }
+        
+        #status { font-size: 0.85em; font-weight: bold; text-align: center; margin-top: 5px; text-shadow: 0 0 5px rgba(0,0,0,0.5); letter-spacing: 0.5px;}
+
+        .player-wrapper { width: 90%; max-width: 800px; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+        
+        .controls-bar { display: flex; gap: 12px; margin-top: 25px; background: #1a1a1f; padding: 15px 25px; border-radius: 15px; border: 1px solid #333; flex-wrap: wrap; justify-content: center; width: 90%; max-width: 800px; box-sizing: border-box;}
+        .btn-ctrl { background: #2a2a35; border: 1px solid #444; color: white; padding: 12px 20px; font-size: 14px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
+        .btn-ctrl:hover { background: var(--accent); color: black; border-color: var(--accent); transform: translateY(-2px); }
+        .btn-play { border-color: #00ff88; color: #00ff88; background: #112a1c; }
+        .btn-play:hover { background: #00ff88; color: black; border-color: #00ff88; }
+
+        .btn-start { background: #00ff88; color: black; font-weight: 900; width: 90%; margin: 15px auto; display: block; padding: 15px; border-radius: 8px; border: none; cursor: pointer; text-transform: uppercase; }
+        .btn-start:disabled { background: #444; color: #888; cursor: not-allowed; }
+        
+        .manual-add-box { display: flex; gap: 10px; background: #1a1a1f; padding: 10px; border-radius: 10px; border: 1px solid #333; width: 90%; max-width: 800px; box-sizing: border-box; }
+        .manual-add-box input { flex-grow: 1; background: #0b0b0d; border: 1px solid #444; color: #fff; padding: 10px 15px; border-radius: 6px; outline: none; }
+        .manual-add-box input:focus { border-color: var(--accent); }
+        .manual-add-box button { background: var(--manual); color: #fff; border: none; font-weight: 900; border-radius: 6px; padding: 0 20px; cursor: pointer; transition: 0.2s; }
+        .manual-add-box button:hover { background: #fff; color: #000; transform: scale(1.05); }
+
+        #now-playing-title { margin-top: 20px; font-size: 1.5em; font-weight: 900; color: var(--gold); text-align: center; text-shadow: 0 0 10px rgba(255, 204, 0, 0.3); padding: 0 20px;}
+        #now-playing-meta { font-size: 1em; color: #aaa; margin-top: 5px; }
+
+        /* MODALE */
+        .modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; }
+        .modal-content { background:var(--panel); width:90%; max-width:600px; max-height:80vh; border: 1px solid #444; border-radius:10px; display:flex; flex-direction:column; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        .modal-header { padding:15px; background:#222; border-bottom:1px solid #444; display:flex; justify-content:space-between; align-items:center; border-radius: 10px 10px 0 0; }
+        .modal-item { display:flex; justify-content:space-between; align-items:center; background:#25252b; padding:10px 15px; margin-bottom:8px; border-radius:6px; border-left: 4px solid var(--red); }
+        .modal-item.playlist-style { border-left-color: var(--accent); }
+        .modal-item-title { font-size:0.9em; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:15px; color:#fff; }
+        .btn-modal-action { background:var(--accent); color:black; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; cursor:pointer; transition:0.2s; white-space:nowrap; }
+        .btn-modal-action:hover { background:#fff; transform: scale(1.05); }
+        .btn-modal-action.danger { background: var(--red); color: white; }
+        .btn-modal-action.danger:hover { background: #ff7777; }
+
+        .api-setup-box { padding: 20px; background: #0b0b0d; margin: 15px; border-radius: 8px; border: 1px solid #333; }
+        .api-input { width: 100%; background: #1a1a1f; border: 1px solid var(--gold); color: white; padding: 12px; border-radius: 6px; box-sizing: border-box; font-family: monospace; font-size: 1.1em; margin-top: 10px; outline: none; }
+        .api-input:focus { box-shadow: 0 0 10px rgba(255, 204, 0, 0.3); }
+
+        .btn-clear-bans { background: var(--red); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; transition: 0.2s;}
+        .btn-clear-bans:hover { background: #ff7777; transform: scale(1.05); }
+
+        /* TUTORIAL MODAL */
+        #tutorial-modal .modal-content { max-width: 800px; }
+        .tut-section { background: #25252b; padding: 15px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid var(--accent); }
+        .tut-section h4 { margin-top: 0; color: var(--gold); margin-bottom: 10px; }
+        
+        .tut-input { background: #050505; color: var(--gold); border: 1px solid #555; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 13px; outline: none; width: 60px; text-align: center; }
+        .tut-input[type="text"] { width: 120px; text-align: left; color: #00ff88; }
+        .tut-input:focus { border-color: var(--accent); }
+
+        .tut-code { 
+            background: #050505; color: #00ff88; font-family: monospace; padding: 10px; border-radius: 6px; 
+            font-size: 11px; word-break: break-all; max-height: 100px; overflow-y: auto; border: 1px solid #333; 
+            margin-bottom: 10px; width: 100%; box-sizing: border-box; resize: vertical;
+        }
+        
+        .btn-copy { background: #333; color: white; border: 1px solid #555; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s;}
+        .btn-copy:hover { background: #00ff88; color: black; border-color: #00ff88;}
+
+        /* NOWY STYL DLA PRZYCISKU ZAMKNIĘCIA TUTORIALA (PULSACJA) */
+        @keyframes pulse-btn-anim {
+            0% { transform: scale(1); box-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 0 25px rgba(0, 255, 136, 0.8); }
+            100% { transform: scale(1); box-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
+        }
+        .btn-pulse {
+            animation: pulse-btn-anim 2s infinite;
+            background: #00ff88 !important;
+            color: #000 !important;
+            font-size: 1.1em !important;
+            padding: 15px 40px !important;
+            border: 2px solid #fff !important;
+        }
+
+        /* PRZYCISKI W PRAWYM DOLNYM ROGU */
+        .floating-btns { position: fixed; bottom: 50px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .btn-help, .btn-changelog { background: var(--manual); color: white; border: 2px solid #fff; border-radius: 50px; padding: 10px 20px; font-weight: 900; font-size: 14px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: 0.2s; text-align: center;}
+        .btn-help:hover { background: var(--gold); color: black; transform: scale(1.1); }
+        .btn-changelog { background: #222; border-color: var(--accent); color: var(--accent); }
+        .btn-changelog:hover { background: var(--accent); color: black; transform: scale(1.1); }
+
+        .bottom-zone { flex-shrink: 0; width: 100%; background: #070709; z-index: 2000; }
+        
+        .footer { border-top: 1px solid #222; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; height: 35px; box-sizing: border-box; }
+        .footer-left { display: flex; align-items: center; gap: 20px; font-size: 11px; color: #666; font-weight: bold; }
+        .footer-left a { color: #888; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
+        .footer-left a:hover { color: var(--accent); transform: scale(1.05); }
+        .footer-left img { height: 16px; width: 16px; object-fit: contain; }
+        .footer-left img.round { border-radius: 50%; }
+        .separator { color: #333; }
+
+        .btn-debug-toggle { background: #1a1a1f; color: #888; border: 1px solid #444; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold; transition: 0.2s; display: flex; align-items: center;}
+        .btn-debug-toggle:hover { color: #fff; background: #333; border-color: var(--accent); }
+        
+        #debug-console { display: none; height: 150px; background: #050505; color: #00ff00; font-family: monospace; font-size: 11px; padding: 10px; overflow-y: auto; border-top: 2px solid #333; position: relative; box-sizing: border-box;}
+
+        @media (max-width: 1400px) {
+            body { display: block; overflow-y: auto; overflow-x: hidden; height: auto; }
+            .top-section { flex-direction: column; height: auto; overflow: visible; padding-bottom: 40px; transition: padding-bottom 0.3s; }
+            .top-section.debug-open { padding-bottom: 190px; } 
+            .panel-left { width: 100%; height: 50vh; min-height: 400px; border-right: none; border-bottom: 2px solid #333; }
+            .main { width: 100%; min-height: unset; padding: 20px 0; }
+            .panel-right { width: 100%; height: 70vh; min-height: 500px; border-left: none; border-top: 2px solid #333; }
+            .config-panel { flex-direction: column; gap: 20px; }
+            .bottom-zone { position: fixed; bottom: 0; left: 0; box-shadow: 0 -5px 15px rgba(0,0,0,0.5); }
+        }
+        
+        /* CHANGELOG LIST */
+        .changelog-entry { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #333; }
+        .changelog-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0;}
+        .cl-version { color: var(--gold); font-size: 1.2em; margin: 0 0 10px 0; display: flex; align-items: center; justify-content: space-between;}
+        .cl-date { font-size: 0.7em; color: #888; font-family: monospace; }
+        .cl-list { margin: 0; padding-left: 20px; color: #ccc; line-height: 1.6; font-size: 0.95em;}
+        .cl-list li { margin-bottom: 6px; }
+        .cl-tag { background: rgba(0, 212, 255, 0.15); color: var(--accent); padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-weight: bold; margin-right: 8px;}
+        .cl-tag.fix { background: rgba(255, 77, 77, 0.15); color: var(--red); }
+        .cl-tag.new { background: rgba(0, 255, 136, 0.15); color: #00ff88; }
+        
+        .lang-select { background: #222; color: #fff; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; outline: none; font-weight: bold; }
+        .lang-select:hover { border-color: var(--accent); }
+    </style>
+</head>
+<body>
+
+    <div class="top-section" id="app-top-section">
+        <!-- LEWA KOLUMNA -->
+        <div class="panel panel-left">
+            <div class="header">
+                <span data-i18n="ui_base_playlists">BASE PLAYLISTS</span>
+                <span id="base-count" class="list-count">🎵 0</span>
+            </div>
+            <button id="btn-run" class="btn-start" onclick="startSystem()" disabled data-i18n="ui_btn_downloading">⏳ DOWNLOADING DATABASE...</button>
+            
+            <div style="padding: 0 10px 10px 10px;">
+                <input type="text" id="base-search" data-i18n-placeholder="ui_search_base" placeholder="🔍 Search track in base (title or author)..." oninput="renderBaseList()">
+            </div>
+
+            <div class="list-container" id="base-list"></div>
+        </div>
+
+        <!-- ŚRODKOWA KOLUMNA -->
+        <div class="main">
+            <div class="config-panel">
+                <div class="config-group">
+                    <span class="config-label" data-i18n="ui_language">Language</span>
+                    <select id="lang-select" class="lang-select" onchange="changeLanguage(this.value)">
+                        <option value="en">English</option>
+                        <option value="pl">Polski</option>
+                        <option value="de">Deutsch</option>
+                        <option value="fr">Français</option>
+                        <option value="tr">Türkçe</option>
+                    </select>
+                </div>
+
+                <div class="config-group">
+                    <label class="switch-large" data-i18n-title="ui_sr_toggle_title" title="Enable or disable viewer requests">
+                        <input type="checkbox" id="sr-toggle-cb" onchange="toggleSR()">
+                        <span class="slider-large"></span>
+                    </label>
+                    <span id="sr-status-text" style="font-weight: 900; font-size: 14px; color: var(--red); text-shadow: 0 0 5px rgba(0,0,0,0.5);">!SR OFF</span>
+                </div>
+
+                <div class="config-group">
+                    <span class="config-label" data-i18n="ui_ws_port">WebSocket Port</span>
+                    <div class="ws-input-box">
+                        <input type="password" id="ws-port-input" value="8080" maxlength="5">
+                        <button onclick="saveWsPort()" data-i18n-title="ui_save_reconnect" title="Save and reconnect">💾</button>
+                    </div>
+                    <div id="status" style="color: #ffaa00;" data-i18n="ui_bot_connecting">🔴 Connecting to Bot...</div>
+                </div>
+
+                <div class="config-group">
+                    <span class="config-label" data-i18n="ui_track_base">Track Base</span>
+                    <button class="btn-config highlight" onclick="openPlaylistManager()">
+                        <span data-i18n="ui_manage_playlists">📁 Manage Playlists</span>
+                    </button>
+                </div>
+
+                <div class="config-group">
+                    <span class="config-label">Google API</span>
+                    <button class="btn-config" onclick="openApiSetup()">
+                        <span id="api-status-icon" style="font-size: 14px;">⚪</span> <span data-i18n="ui_api_setup">API Setup</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="player-wrapper">
+                <div id="player"></div>
+            </div>
+            
+            <div id="now-playing-title" data-i18n="ui_waiting_start">Waiting for start</div>
+            <div id="now-playing-meta">---</div>
+
+            <div class="controls-bar">
+                <button class="btn-ctrl" onclick="prevSong()" data-i18n="ui_prev">⏮ PREVIOUS</button>
+                <button class="btn-ctrl btn-play" onclick="togglePlay()" data-i18n="ui_play_pause">⏯ PAUSE / RESUME</button>
+                <button class="btn-ctrl" onclick="stopSongUI()" style="color: var(--red);" data-i18n="ui_stop">⏹ STOP</button>
+                <button class="btn-ctrl" onclick="skipSong()" data-i18n="ui_next">⏭ NEXT</button>
+            </div>
+            
+            <div class="manual-add-box" style="margin-top: 20px;">
+                <input type="text" id="manual-url" data-i18n-placeholder="ui_manual_url" placeholder="Paste YouTube link here...">
+                <button onclick="addManualUrl()" data-i18n="ui_add">ADD</button>
+            </div>
+        </div>
+
+        <!-- PRAWA KOLUMNA -->
+        <div class="panel panel-right">
+            <div class="header">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span data-i18n="ui_queue">QUEUE !SR</span>
+                    <button onclick="openBanList()" style="background: #222; border: 1px solid #444; color: var(--red); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold; transition: 0.2s;" data-i18n="ui_banned_btn">🔨 BANNED</button>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <span id="queue-time" class="list-count" data-i18n-title="ui_queue_time_title" title="Total time of queued tracks">⏱️ 0m 0s</span>
+                    <span id="queue-count" class="list-count" data-i18n-title="ui_queue_count_title" title="Total tracks (including current)">🎵 0</span>
+                </div>
+            </div>
+            
+            <div id="now-playing-box">
+                <div style="font-size: 0.7em; color: var(--gold); text-transform: uppercase; font-weight: bold; margin-bottom: 8px; text-align: center; letter-spacing: 1px;" data-i18n="ui_now_playing">🎵 Now Playing</div>
+                <div id="now-playing-content">
+                    <div style="text-align:center; color:#555; font-size: 0.8em; padding: 10px;" data-i18n="ui_no_song">No song</div>
+                </div>
+            </div>
+
+            <div class="list-container" id="queue-list"></div>
+        </div>
+    </div>
+
+    <!-- DOLNA STREFA: STOPKA + LOGI -->
+    <div class="bottom-zone">
+        <div class="footer">
+            <div class="footer-left">
+                <a href="https://twitch.tv/HackMe_" target="_blank">
+                    <img src="https://static-cdn.jtvnw.net/jtv_user_pictures/34518793-9a28-4e44-bf46-2e455c035873-profile_image-70x70.png" class="round" alt="HackMe_ Avatar">
+                    Designed by HackMe_
+                </a>
+                <span class="separator">|</span>
+                <a href="https://streamer.bot" target="_blank">
+                    <img src="https://streamer.bot/logo.svg" alt="Streamer.bot Logo">
+                    Powered by Streamer.bot
+                </a>
+            </div>
+            <button class="btn-debug-toggle" onclick="toggleDebug()" data-i18n="ui_sys_logs">🔧 SYSTEM LOGS</button>
+        </div>
+
+        <div id="debug-console">
+            <div id="log-content">=== YTM Song Request 1.0.0a ===</div>
+        </div>
+    </div>
+
+    <!-- PŁYWAJĄCE PRZYCISKI -->
+    <div class="floating-btns" id="floating-btns">
+        <button class="btn-changelog" onclick="openChangelog()" data-i18n="ui_changelog_btn">📜 CHANGELOG</button>
+        <button class="btn-help" onclick="openTutorial()" data-i18n="ui_help_btn">❓ HELP</button>
+    </div>
+
+    <!-- MODAL CHANGELOG -->
+    <div id="changelog-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; color:var(--accent);">📜 Changelog</h3>
+                <button onclick="closeChangelog()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+            </div>
+            <div style="padding: 20px; overflow-y:auto; flex-grow:1; max-height: 70vh;">
+                
+                <div class="changelog-entry">
+                    <h4 class="cl-version">v1.0.0a <span class="cl-date">06.05.2026</span></h4>
+                    <ul class="cl-list">
+                        <li><span class="cl-tag new">NEW</span> GitHub implementation and final project structuring.</li>
+                        <li><span class="cl-tag fix">FIX</span> Fixed a visual bug where changing the language displayed a false "Connecting" status for the WebSocket. The connection now automatically refreshes upon language change.</li>
+                    </ul>
+                </div>
+
+                <div class="changelog-entry">
+                    <h4 class="cl-version">v1.0.0 <span class="cl-date">06.05.2026</span></h4>
+                    <ul class="cl-list">
+                        <li><span class="cl-tag new">NEW</span> <strong>Multi-language System (i18n)</strong>. The app now fully supports English, Polish, German, French, and Turkish. Language preferences are saved locally.</li>
+                        <li><span class="cl-tag new">NEW</span> Chat messages from the bot are now translated instantly based on the selected language without restarting.</li>
+                        <li><span class="cl-tag new">NEW</span> Dynamic tutorial instructions! The final step now recognizes if you are opening the file locally (`file://`) or through the Streamer.bot server (`http://localhost`) and adapts the message accordingly.</li>
+                        <li><span class="cl-tag new">NEW</span> Added an important reminder for users to keep port settings in sync.</li>
+                    </ul>
+                </div>
+
+                <div class="changelog-entry">
+                    <h4 class="cl-version">v0.9.0 <span class="cl-date">06.05.2026</span></h4>
+                    <ul class="cl-list">
+                        <li><span class="cl-tag new">NEW</span> <strong>First official release</strong>. Project renamed to <em>YTM Song Request</em>.</li>
+                        <li><span class="cl-tag new">NEW</span> Added real-time search for base tracks with quick add buttons.</li>
+                        <li><span class="cl-tag new">NEW</span> Built-in Changelog modal.</li>
+                        <li><span class="cl-tag fix">CHANGE</span> Split Streamer.bot !play action into separate, safer commands.</li>
+                        <li><span class="cl-tag fix">FIX</span> Command !skip now sends the exact track info.</li>
+                        <li><span class="cl-tag fix">FIX</span> UI optimization.</li>
+                    </ul>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LISTY BANÓW -->
+    <div id="ban-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    <h3 style="margin:0; color:var(--red);" data-i18n="ui_ban_title">🔨 Blacklist</h3>
+                    <button class="btn-clear-bans" onclick="clearAllBans()" data-i18n="ui_clear_bans">🧹 CLEAR ALL BANS</button>
+                </div>
+                <button onclick="closeBanList()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+            </div>
+            <div id="ban-list-content" style="padding:15px; overflow-y:auto; flex-grow:1; max-height: 60vh;"></div>
+        </div>
+    </div>
+
+    <!-- MODAL LISTY PLAYLIST -->
+    <div id="playlist-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; color:var(--accent);" data-i18n="ui_manage_playlists">📁 Manage Playlists</h3>
+                <button onclick="closePlaylistManager()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+            </div>
+            <div style="padding: 15px 15px 0 15px;">
+                <div class="manual-add-box" style="margin-top: 0; width: 100%; padding: 5px; border: 1px solid #333; background: #000;">
+                    <input type="text" id="base-playlist-url" data-i18n-placeholder="ui_playlist_url" placeholder="Paste link to new YT playlist..." style="padding: 8px;">
+                    <button onclick="addBasePlaylist()" style="background: var(--gold); color: #000; font-size: 0.9em; padding: 0 15px;" data-i18n="ui_add">ADD</button>
+                </div>
+            </div>
+            <div id="playlist-list-content" style="padding:15px; overflow-y:auto; flex-grow:1; max-height: 50vh;"></div>
+        </div>
+    </div>
+
+    <!-- MODAL KONFIGURACJI API -->
+    <div id="api-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; color:var(--gold);" data-i18n="ui_api_title">🔑 Google API Key Setup</h3>
+                <button onclick="closeApiSetup(true)" id="api-close-btn" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+            </div>
+            <div style="padding: 0 15px 15px 15px; overflow-y:auto; max-height: 70vh;">
+                <div style="background: rgba(0, 255, 136, 0.1); border-left: 4px solid #00ff88; padding: 12px; margin-top: 15px; border-radius: 4px; font-size: 0.85em; color: #ccc; line-height: 1.4;" data-i18n="ui_api_safe">
+                    🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser (Local Storage). It is never sent to any external servers (except directly to Google to fetch tracks).
+                </div>
+
+                <div class="api-setup-box" style="margin-top: 15px;">
+                    <label for="api-key-input" style="font-weight:bold; color: #fff;" data-i18n="ui_api_label">Your YouTube Data API v3 key:</label>
+                    <input type="password" id="api-key-input" class="api-input" placeholder="AIzaSy...">
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button onclick="saveApiKey()" style="background: var(--gold); color: black; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; flex-grow: 1;" data-i18n="ui_api_save">💾 SAVE AND CHECK</button>
+                        <button onclick="toggleApiVisibility()" id="btn-show-api" style="background: #222; color: #fff; border: 1px solid #444; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer;" data-i18n="ui_api_show">👁 SHOW</button>
+                    </div>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 6px; font-size: 0.85em; color: #ccc; line-height: 1.5; margin-top: 15px;">
+                    <strong style="color: #fff; font-size: 1.1em;" data-i18n="ui_api_howto_title">Where to get a free API key?</strong>
+                    <ol style="margin: 10px 0 0 0; padding-left: 20px; color: var(--accent);">
+                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_1">Log in to <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.</li>
+                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_2">Create a new project (or select an existing one).</li>
+                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_3">In the left menu click 'APIs & Services' -> 'Library'.</li>
+                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_4">Search and enable: 'YouTube Data API v3'.</li>
+                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_5">Go to the 'Credentials' tab -> 'Create credentials' -> 'API key'.</li>
+                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_6">Copy the generated key and paste it in the field above.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TUTORIAL MODAL -->
+    <div id="tutorial-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; color:var(--accent);" data-i18n="ui_tut_title">🎓 Tutorial: First steps and configuration</h3>
+                <button onclick="closeTutorial()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+            </div>
+            <div style="padding: 20px; overflow-y:auto; flex-grow:1; max-height: 70vh;">
+                
+                <div class="tut-section">
+                    <h4 data-i18n="ui_tut_1_title">1. Interface and Features</h4>
+                    <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;" data-i18n="ui_tut_1_desc">
+                        • <strong>Left Panel (Base):</strong> Here you will find tracks from your default playlists. The player randomly shuffles songs from them when the viewer queue is empty.<br>• <strong>Middle Panel:</strong> !SR switch, port settings, API key, and the main YouTube player.<br>• <strong>Right Panel (!SR Queue):</strong> Viewer requests from Twitch. You can <strong>Drag & Drop</strong> tracks here with your mouse to easily change their order!
+                    </p>
+                </div>
+
+                <div class="tut-section">
+                    <h4 data-i18n="ui_tut_2_title">2. HTTP Server in Streamer.bot</h4>
+                    <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;">
+                        <span data-i18n="ui_tut_2_desc_1">For the YouTube player and API to work without blocks, the file must be run through a local HTTP server. We will use the built-in server in Streamer.bot for this.</span><br><br>
+                        1. <span data-i18n="ui_tut_2_desc_2">In Streamer.bot go to the <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong> tab.</span><br>
+                        2. <span data-i18n="ui_tut_2_desc_3">Set Port:</span> <input type="number" id="tut-http-port" value="7474" class="tut-input" oninput="updateTutLink()"> <span data-i18n="ui_tut_2_desc_3b">(you can leave the suggested default!)</span><br>
+                        3. <span data-i18n="ui_tut_2_desc_4">In the <strong>Mappings</strong> field, click the folder icon and point to the folder where this HTML file is located.</span> <br><span data-i18n="ui_tut_2_desc_4b">In the PATH field, specify the subfolder name for the page:</span> <input type="text" id="tut-folder" value="YTM" class="tut-input" oninput="updateTutLink()"><br><span data-i18n="ui_tut_2_desc_4c">(This will be part of the website address! e.g., 'YTM' = http://localhost:7474/YTM)</span><br>
+                        4. <span data-i18n="ui_tut_2_desc_5">Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.</span>
+                    </p>
+                </div>
+
+                <div class="tut-section">
+                    <h4 data-i18n="ui_tut_3_title">3. WebSocket Server in Streamer.bot</h4>
+                    <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;">
+                        <span data-i18n="ui_tut_3_desc_1">For chat commands (!sr, !skip, deleting, etc.) to work, you need an active WebSocket connection.</span><br><br>
+                        1. <span data-i18n="ui_tut_3_desc_2">Go to <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.</span><br>
+                        2. <span data-i18n="ui_tut_3_desc_3">Set port:</span> <input type="number" id="tut-ws-port" value="8080" class="tut-input" oninput="updateTutLink()"> <span data-i18n="ui_tut_3_desc_3b">(you can leave the suggested default!)</span><br> 
+                        3. <span data-i18n="ui_tut_3_desc_4">Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.</span><br>
+                    </p>
+                </div>
+                    
+                <div class="tut-section">
+                    <h4 data-i18n="ui_tut_4_title">4. Import Actions to Streamer.bot</h4>
+                    <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;" data-i18n="ui_tut_4_desc">
+                        For chat commands (!sr, !skip, deleting, etc.) to work, you need specific action commands and queues in Streamer.bot.<br><br>1. Click the <strong>Import</strong> button on the top bar of Streamer.bot.<br>2. Copy the code below, paste it into the empty <em>Import String</em> field, and click <strong>Import</strong>.
+                    </p>        
+
+                    <textarea id="sb-import-code" class="tut-code" readonly>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</textarea>
+                    <button class="btn-copy" onclick="copySbCode()" data-i18n="ui_copy_code">Copy Import Code</button>
+                </div>
+
+                <div class="tut-section">
+                    <h4 data-i18n="ui_tut_5_title">5. Google API Configuration</h4>
+                    <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;" data-i18n="ui_tut_5_desc">
+                        After clicking the button at the bottom of this window, you will be prompted to enter your free API key, which allows the system to pull video data.<br><br>🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser's memory (Local Storage). It is never sent to any external servers.
+                    </p>
+                </div>
+
+                <div style="text-align: center; margin: 20px 0; padding: 15px; background: #111; border: 1px solid var(--accent); border-radius: 8px;">
+                    <strong id="tut-done-text" style="color: #fff; font-size: 1.1em;">Loading...</strong><br>
+                    <a id="tut-final-link" href="#" target="_blank" style="color: var(--accent); font-size: 1.2em; font-weight: bold; text-decoration: none; display: inline-block; margin-top: 10px; padding: 10px 15px; background: rgba(0, 212, 255, 0.1); border-radius: 6px; border: 1px dashed var(--accent);">
+                        Loading link...
+                    </a>
+                    <div style="margin-top: 15px; font-size: 0.9em; color: var(--gold);" data-i18n="ui_tut_reminder">⚠️ Remember that Streamer.bot settings must always match the ones on this page!</div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px;">
+                    <button id="tut-close-btn" onclick="closeTutorial()" style="background: var(--accent); color: black; font-weight: bold; border: none; padding: 10px 30px; border-radius: 6px; cursor: pointer; transition: 0.2s;" data-i18n="ui_tut_btn_understand">I UNDERSTAND, CONTINUE!</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =========================================================================
+        // SŁOWNIK JĘZYKOWY (i18n)
+        // =========================================================================
+        const i18n = {
+            en: {
+                ui_base_playlists: "BASE PLAYLISTS",
+                ui_btn_downloading: "⏳ DOWNLOADING...",
+                ui_btn_start_active: "▶ START / SHUFFLE",
+                ui_btn_start_error: "❌ API ERROR",
+                ui_btn_start_req: "⚠️ API KEY REQUIRED",
+                ui_search_base: "🔍 Search track (title or author)...",
+                ui_language: "Language",
+                ui_sr_toggle_title: "Enable or disable viewer requests",
+                ui_ws_port: "WebSocket Port",
+                ui_save_reconnect: "Save and reconnect",
+                ui_bot_connecting: "🔴 Connecting to Bot...",
+                ui_bot_connected: "🟢 Bot Connected",
+                ui_bot_disconnected: "🔴 Bot Disconnected",
+                ui_track_base: "Track Base",
+                ui_manage_playlists: "📁 Manage Playlists",
+                ui_api_setup: "API Setup",
+                ui_waiting_start: "Waiting for start",
+                ui_prev: "⏮ PREVIOUS",
+                ui_play_pause: "⏯ PAUSE / RESUME",
+                ui_stop: "⏹ STOP",
+                ui_next: "⏭ NEXT",
+                ui_manual_url: "Paste YouTube link here...",
+                ui_add: "ADD",
+                ui_queue: "QUEUE !SR",
+                ui_banned_btn: "🔨 BANNED",
+                ui_queue_time_title: "Total time of queued tracks",
+                ui_queue_count_title: "Total tracks",
+                ui_now_playing: "🎵 Now Playing",
+                ui_no_song: "No song",
+                ui_sys_logs: "🔧 SYSTEM LOGS",
+                ui_changelog_btn: "📜 CHANGELOG",
+                ui_help_btn: "❓ HELP",
+                ui_ban_title: "🔨 Blacklist",
+                ui_clear_bans: "🧹 CLEAR ALL BANS",
+                ui_empty_bans: "The banned tracks list is empty.",
+                ui_unban: "UNBAN",
+                ui_playlist_url: "Paste link to new YT playlist...",
+                ui_empty_playlists: "No saved playlists. Add a new one above!",
+                ui_remove: "REMOVE",
+                ui_api_title: "🔑 Google API Key Setup",
+                ui_api_safe: "🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser (Local Storage). It is never sent to any external servers (except directly to Google to fetch tracks).",
+                ui_api_label: "Your YouTube Data API v3 key:",
+                ui_api_save: "💾 SAVE AND CHECK",
+                ui_api_show: "👁 SHOW",
+                ui_api_hide: "🙈 HIDE",
+                ui_api_howto_title: "Where to get a free API key?",
+                ui_api_howto_1: "Log in to <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.",
+                ui_api_howto_2: "Create a new project (or select an existing one).",
+                ui_api_howto_3: "In the left menu click 'APIs & Services' -> 'Library'.",
+                ui_api_howto_4: "Search and enable: 'YouTube Data API v3'.",
+                ui_api_howto_5: "Go to the 'Credentials' tab -> 'Create credentials' -> 'API key'.",
+                ui_api_howto_6: "Copy the generated key and paste it in the field above.",
+                ui_tut_title: "🎓 Tutorial: First steps and configuration",
+                ui_tut_1_title: "1. Interface and Features",
+                ui_tut_1_desc: "• <strong>Left Panel (Base):</strong> Here you will find tracks from your default playlists. The player randomly shuffles songs from them when the viewer queue is empty.<br>• <strong>Middle Panel:</strong> !SR switch, port settings, API key, and the main YouTube player.<br>• <strong>Right Panel (!SR Queue):</strong> Viewer requests from Twitch. You can <strong>Drag & Drop</strong> tracks here with your mouse to easily change their order!",
+                ui_tut_2_title: "2. HTTP Server in Streamer.bot",
+                ui_tut_2_desc_1: "For the YouTube player and API to work without blocks, the file must be run through a local HTTP server. We will use the built-in server in Streamer.bot for this.",
+                ui_tut_2_desc_2: "In Streamer.bot go to the <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong> tab.",
+                ui_tut_2_desc_3: "Set Port:",
+                ui_tut_2_desc_3b: "(you can leave the suggested default!)",
+                ui_tut_2_desc_4: "In the <strong>Mappings</strong> field, click the folder icon and point to the folder where this HTML file is located.",
+                ui_tut_2_desc_4b: "In the PATH field, specify the subfolder name for the page:",
+                ui_tut_2_desc_4c: "(This will be part of the website address! e.g., 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_5: "Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.",
+                ui_tut_3_title: "3. WebSocket Server in Streamer.bot",
+                ui_tut_3_desc_1: "For chat commands (!sr, !skip, deleting, etc.) to work, you need an active WebSocket connection.",
+                ui_tut_3_desc_2: "Go to <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
+                ui_tut_3_desc_3: "Set port:",
+                ui_tut_3_desc_3b: "(you can leave the suggested default!)",
+                ui_tut_3_desc_4: "Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.",
+                ui_tut_4_title: "4. Import Actions to Streamer.bot",
+                ui_tut_4_desc: "For chat commands (!sr, !skip, deleting, etc.) to work, you need specific action commands and queues in Streamer.bot.<br><br>1. Click the <strong>Import</strong> button on the top bar of Streamer.bot.<br>2. Copy the code below, paste it into the empty <em>Import String</em> field, and click <strong>Import</strong>.",
+                ui_copy_code: "Copy Import Code",
+                ui_tut_5_title: "5. Google API Configuration",
+                ui_tut_5_desc: "After clicking the button at the bottom of this window, you will be prompted to enter your free API key, which allows the system to pull video data.<br><br>🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser's memory (Local Storage). It is never sent to any external servers.",
+                ui_tut_done_file: "🔗 After completing the steps above, NOW GO to the page below (if the link doesn't work, come back here!):",
+                ui_tut_done_http: "🔗 Done, everything works! Your page address is now:",
+                ui_tut_reminder: "⚠️ Remember that Streamer.bot settings must always match the ones on this page!",
+                ui_tut_btn_understand: "I UNDERSTAND, CONTINUE!",
+                ui_tut_btn_api: "I UNDERSTAND, SETUP API",
+                ui_tut_btn_close: "I UNDERSTAND, CLOSE",
+
+                msg_sr_on: "Song Request is now active! You can add a track: !sr YouTube link",
+                msg_sr_off: "Song Request has been stopped!",
+                msg_base_play: "▶️ @{user} started base playback!",
+                msg_base_empty: "❌ @{user}, the track base is empty!",
+                msg_queue_play: "▶️ @{user} started queue playback!",
+                msg_resumed: "▶️ @{user} resumed the player!",
+                msg_already_playing: "❌ @{user}, the player is already playing!",
+                msg_paused: "⏸️ @{user} paused the player!",
+                msg_already_paused: "❌ @{user}, the player is already paused or empty.",
+                msg_stopped: "⏹️ @{user} completely stopped the player!",
+                msg_nothing_playing: "❌ @{user}, nothing is playing right now!",
+                msg_api_err: "❌ @{user}, YT API error.",
+                msg_not_found: "❌ @{user}, this video does not exist.",
+                msg_load_err: "❌ @{user}, loading error.",
+                msg_song_added: "✅ @{user}, added: {author} - {title} | Position: {pos} | In approx. {m}m {s}s",
+                msg_current: "🎵 @{user}, playing: {author} - {title} | Added by: {adder} | {link}",
+                msg_skip: "⏭️ @{user} skipped the track: {author} - {title}!",
+                msg_skip_empty: "❌ @{user}, nothing is playing, nothing to skip!",
+                msg_wrong_rm: "🗑️ @{user}, removed your track: {title}",
+                msg_wrong_none: "❌ @{user}, you have no tracks to remove.",
+                msg_vol: "🔊 @{user}, volume: {vol}%",
+                msg_sr_disabled: "❌ @{user}, !sr requests are currently DISABLED.",
+                msg_sr_banned: "❌ @{user}, Unfortunately this track is banned!",
+                msg_sr_dupe: "❌ @{user}, the track has already been requested!",
+                msg_err_empty: "enter a song title or paste a YouTube link!",
+                msg_err_not_found: "could not find any track for: {info}",
+                msg_err_long: "track is too long! (It is {info}m, limit is 15m)",
+                msg_err_cat: "found video is not music! (Category: {info}). Try adding 'music' to your search.",
+                msg_err_api: "YouTube servers error. Try pasting a link.",
+                msg_searching: "🔍 @{user}, searching for track...",
+                msg_err_id: "❌ @{user}, could not recognize track ID.",
+                msg_err_yt_read: "❌ @{user}, error reading from YouTube.",
+                msg_ban_auto: "🚫 Track \"{title}\" has been banned and skipped!",
+                msg_ban_rm: "🚫 Track \"{title}\" has been banned and removed from queue!",
+                msg_bot_blocked: "⚠️ Unfortunately the track from @{user} is blocked by YouTube. Skipping automatically!"
+            },
+            pl: {
+                ui_base_playlists: "PLAYLISTY BAZOWE",
+                ui_btn_downloading: "⏳ TRWA POBIERANIE...",
+                ui_btn_start_active: "▶ START / TASUJ",
+                ui_btn_start_error: "❌ BŁĄD KLUCZA API",
+                ui_btn_start_req: "⚠️ WYMAGANY KLUCZ API",
+                ui_search_base: "🔍 Szukaj utworu (tytuł lub autor)...",
+                ui_language: "Język",
+                ui_sr_toggle_title: "Włącz lub wyłącz zamówienia widzów",
+                ui_ws_port: "Port WebSocket",
+                ui_save_reconnect: "Zapisz i połącz ponownie",
+                ui_bot_connecting: "🔴 Łączenie z Botem...",
+                ui_bot_connected: "🟢 Bot Połączony",
+                ui_bot_disconnected: "🔴 Bot Rozłączony",
+                ui_track_base: "Baza Utworów",
+                ui_manage_playlists: "📁 Zarządzaj Playlistami",
+                ui_api_setup: "Konfiguracja API",
+                ui_waiting_start: "Czekam na start",
+                ui_prev: "⏮ POPRZEDNI",
+                ui_play_pause: "⏯ PAUZA / WZNÓW",
+                ui_stop: "⏹ STOP",
+                ui_next: "⏭ NASTĘPNY",
+                ui_manual_url: "Wklej link z YouTube tutaj...",
+                ui_add: "DODAJ",
+                ui_queue: "KOLEJKA !SR",
+                ui_banned_btn: "🔨 ZBANOWANE",
+                ui_queue_time_title: "Całkowity czas oczekujących utworów",
+                ui_queue_count_title: "Całkowita liczba utworów",
+                ui_now_playing: "🎵 Teraz Odtwarzane",
+                ui_no_song: "Brak utworu",
+                ui_sys_logs: "🔧 LOGI SYSTEMOWE",
+                ui_changelog_btn: "📜 CHANGELOG",
+                ui_help_btn: "❓ HELP",
+                ui_ban_title: "🔨 Czarna Lista",
+                ui_clear_bans: "🧹 WYCZYŚĆ WSZYSTKIE BANNy",
+                ui_empty_bans: "Lista zbanowanych utworów jest pusta.",
+                ui_unban: "ODBANUJ",
+                ui_playlist_url: "Wklej link do nowej playlisty YT...",
+                ui_empty_playlists: "Brak zapisanych playlist. Dodaj nową u góry!",
+                ui_remove: "USUŃ",
+                ui_api_title: "🔑 Konfiguracja Google API Key",
+                ui_api_safe: "🔒 <strong>Twoje dane są w 100% bezpieczne!</strong> Twój klucz API jest zapisywany wyłącznie lokalnie w pamięci Twojej przeglądarki (Local Storage). Nigdy nie jest wysyłany na żadne zewnętrzne serwery (poza zapytaniami bezpośrednio do Google w celu pobrania utworów).",
+                ui_api_label: "Twój klucz YouTube Data API v3:",
+                ui_api_save: "💾 ZAPISZ I SPRAWDŹ",
+                ui_api_show: "👁 POKAŻ",
+                ui_api_hide: "🙈 UKRYJ",
+                ui_api_howto_title: "Skąd wziąć darmowy klucz API?",
+                ui_api_howto_1: "Zaloguj się na <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.",
+                ui_api_howto_2: "Utwórz nowy projekt (lub wybierz istniejący).",
+                ui_api_howto_3: "W menu po lewej kliknij 'Interfejsy API i usługi' -> 'Biblioteka'.",
+                ui_api_howto_4: "Wyszukaj i włącz: 'YouTube Data API v3'.",
+                ui_api_howto_5: "Przejdź do zakładki 'Dane logowania' -> 'Utwórz dane logowania' -> 'Klucz API'.",
+                ui_api_howto_6: "Skopiuj wygenerowany klucz i wklej go w polu powyżej.",
+                ui_tut_title: "🎓 Poradnik: Pierwsze kroki i konfiguracja",
+                ui_tut_1_title: "1. Budowa Interfejsu i Funkcje",
+                ui_tut_1_desc: "• <strong>Lewy Panel (Baza):</strong> Tu znajdują się utwory z Twoich domyślnych playlist. Odtwarzacz losuje z nich piosenki, gdy w kolejce widzów jest pusto.<br>• <strong>Środkowy Panel:</strong> Włącznik !SR, ustawienia portów, klucz API oraz główny odtwarzacz YouTube.<br>• <strong>Prawy Panel (Kolejka !SR):</strong> Zamówienia od widzów z Twitcha. Możesz tutaj <strong>przeciągać i upuszczać (Drag & Drop)</strong> utwory myszką, aby wygodnie zmienić ich kolejność!",
+                ui_tut_2_title: "2. Serwer HTTP w Streamer.bot",
+                ui_tut_2_desc_1: "Aby odtwarzacz YouTube oraz API działały bez blokad, plik musi być uruchomiony przez lokalny serwer HTTP. Wykorzystamy do tego wbudowany serwer w programie Streamer.bot.",
+                ui_tut_2_desc_2: "W Streamer.bot przejdź do zakładki <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong>.",
+                ui_tut_2_desc_3: "Ustaw Port:",
+                ui_tut_2_desc_3b: "(możesz zostawić domyślnie sugerowany!)",
+                ui_tut_2_desc_4: "W polu <strong>Mappings</strong> kliknij ikonę folderu i wskaż folder, w którym znajduje się ten plik HTML.",
+                ui_tut_2_desc_4b: "W polu PATH wskaż nazwę podfolderu dla strony:",
+                ui_tut_2_desc_4c: "(Będzie to część adresu strony! np 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_5: "Zaznacz <strong>Auto Start</strong> i kliknij <strong>Start Server</strong>.",
+                ui_tut_3_title: "3. Serwer WebSocket i Skrypty w Streamer.bot",
+                ui_tut_3_desc_1: "Aby polecenia na czacie (!sr, !skip, usuwanie itp.) działały, potrzebujesz aktywnego połączenia WebSocket.",
+                ui_tut_3_desc_2: "Przejdź do <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
+                ui_tut_3_desc_3: "Ustaw port:",
+                ui_tut_3_desc_3b: "(możesz zostawić domyślnie sugerowany!)",
+                ui_tut_3_desc_4: "Zaznacz <strong>Auto Start</strong> i kliknij <strong>Start Server</strong>.",
+                ui_tut_4_title: "4. Import Akcji do Streamer.bot",
+                ui_tut_4_desc: "Aby polecenia na czacie (!sr, !skip, usuwanie itp.) działały, potrzebujesz konkretnych komend akcji i kolejek w Stremerbot.<br><br>1. Kliknij przycisk <strong>Import</strong> na górnym pasku Streamer.bota.<br>2. Skopiuj poniższy kod, wklej go w puste pole <em>Import String</em> i kliknij <strong>Import</strong>.",
+                ui_copy_code: "Kopiuj Kod Importu",
+                ui_tut_5_title: "5. Konfiguracja Google API",
+                ui_tut_5_desc: "Po kliknięciu przycisku na dole tego okna, zostaniesz przeniesiony do wpisania darmowego klucza API, dzięki któremu system zaciąga dane o filmach.<br><br>🔒 <strong>Twoje dane są w 100% bezpieczne!</strong> Twój klucz API jest zapisywany wyłącznie lokalnie w pamięci Twojej przeglądarki (Local Storage). Nigdy nie jest wysyłany na żadne zewnętrzne serwery.",
+                ui_tut_done_file: "🔗 Po wykonaniu powyższych kroków TERAZ PRZEJDŹ do strony poniżej (jeżeli link nie działa, wróć tu!):",
+                ui_tut_done_http: "🔗 Zrobione, wszystko działa! Twój adres strony to teraz:",
+                ui_tut_reminder: "⚠️ Pamiętaj, że ustawienia w Streamer.bot muszą być zawsze takie same jak na tej stronie!",
+                ui_tut_btn_understand: "ROZUMIEM, DALEJ!",
+                ui_tut_btn_api: "ROZUMIEM, KONFIGURUJ API",
+                ui_tut_btn_close: "ROZUMIEM, ZAMKNIJ",
+
+                msg_sr_on: "Song Request jest już aktywny! Możesz dodać utwór: !sr link z YouTube",
+                msg_sr_off: "Song Request został zatrzymany!",
+                msg_base_play: "▶️ @{user} uruchomił odtwarzanie bazy!",
+                msg_base_empty: "❌ @{user}, baza utworów jest pusta!",
+                msg_queue_play: "▶️ @{user} uruchomił odtwarzanie kolejki!",
+                msg_resumed: "▶️ @{user} wznowił odtwarzacz!",
+                msg_already_playing: "❌ @{user}, odtwarzacz już gra!",
+                msg_paused: "⏸️ @{user} wstrzymał odtwarzacz!",
+                msg_already_paused: "❌ @{user}, odtwarzacz jest już wstrzymany lub nic nie gra.",
+                msg_stopped: "⏹️ @{user} całkowicie zatrzymał odtwarzacz!",
+                msg_nothing_playing: "❌ @{user}, aktualnie nic nie gra!",
+                msg_api_err: "❌ @{user}, błąd API YT.",
+                msg_not_found: "❌ @{user}, ten film nie istnieje.",
+                msg_load_err: "❌ @{user}, błąd załadowania.",
+                msg_song_added: "✅ @{user}, dodano: {author} - {title} | Pozycja: {pos} | Za ok. {m}m {s}s",
+                msg_current: "🎵 @{user}, gra: {author} - {title} | Dodał: {adder} | {link}",
+                msg_skip: "⏭️ @{user} pominął utwór: {author} - {title}!",
+                msg_skip_empty: "❌ @{user}, aktualnie nic nie gra, nie ma czego pomijać!",
+                msg_wrong_rm: "🗑️ @{user}, usunięto Twój utwór: {title}",
+                msg_wrong_none: "❌ @{user}, nie masz utworów do usunięcia.",
+                msg_vol: "🔊 @{user}, głośność: {vol}%",
+                msg_sr_disabled: "❌ @{user}, zamówienia !sr są aktualnie WYŁĄCZONE.",
+                msg_sr_banned: "❌ @{user}, Niestety ten utwór jest zbanowany!",
+                msg_sr_dupe: "❌ @{user}, utwór został już zamówiony!",
+                msg_err_empty: "wpisz tytuł piosenki lub wklej link z YouTube!",
+                msg_err_not_found: "nie znalazłem żadnego utworu pod hasłem: {info}",
+                msg_err_long: "utwór jest za długi! (Trwa {info}m, a limit to 15m)",
+                msg_err_cat: "znaleziony film to nie jest muzyka! (Kategoria: {info}). Spróbuj wpisać tytuł i dopisać słowo 'music'.",
+                msg_err_api: "błąd serwerów YouTube. Spróbuj wkleić link.",
+                msg_searching: "🔍 @{user}, szukam utworu...",
+                msg_err_id: "❌ @{user}, nie rozpoznałem ID utworu.",
+                msg_err_yt_read: "❌ @{user}, błąd odczytu z YouTube.",
+                msg_ban_auto: "🚫 Utwór \"{title}\" został zbanowany i przerwany!",
+                msg_ban_rm: "🚫 Utwór \"{title}\" został zbanowany i usunięty z kolejki!",
+                msg_bot_blocked: "⚠️ Niestety utwór od @{user} ma blokadę YouTube. Automatycznie pomijam!"
+            },
+            de: {
+                ui_base_playlists: "BASIS-PLAYLISTS",
+                ui_btn_downloading: "⏳ LÄDT HERUNTER...",
+                ui_btn_start_active: "▶ START / MISCHEN",
+                ui_btn_start_error: "❌ API-FEHLER",
+                ui_btn_start_req: "⚠️ API-SCHLÜSSEL ERFORDERLICH",
+                ui_search_base: "🔍 Track suchen (Titel oder Autor)...",
+                ui_language: "Sprache",
+                ui_sr_toggle_title: "Viewer-Anfragen aktivieren oder deaktivieren",
+                ui_ws_port: "WebSocket-Port",
+                ui_save_reconnect: "Speichern und neu verbinden",
+                ui_bot_connecting: "🔴 Verbinde mit Bot...",
+                ui_bot_connected: "🟢 Bot verbunden",
+                ui_bot_disconnected: "🔴 Bot getrennt",
+                ui_track_base: "Track-Basis",
+                ui_manage_playlists: "📁 Playlists verwalten",
+                ui_api_setup: "API-Einrichtung",
+                ui_waiting_start: "Warte auf Start",
+                ui_prev: "⏮ VORHERIGER",
+                ui_play_pause: "⏯ PAUSE / WEITER",
+                ui_stop: "⏹ STOP",
+                ui_next: "⏭ NÄCHSTER",
+                ui_manual_url: "YouTube-Link hier einfügen...",
+                ui_add: "HINZUFÜGEN",
+                ui_queue: "WARTESCHLANGE !SR",
+                ui_banned_btn: "🔨 GEBANNT",
+                ui_queue_time_title: "Gesamtzeit der Warteschlange",
+                ui_queue_count_title: "Gesamtanzahl (inkl. aktuell)",
+                ui_now_playing: "🎵 Läuft Jetzt",
+                ui_no_song: "Kein Lied",
+                ui_sys_logs: "🔧 SYSTEMPROTOKOLLE",
+                ui_changelog_btn: "📜 CHANGELOG",
+                ui_help_btn: "❓ HILFE",
+                ui_ban_title: "🔨 Schwarze Liste",
+                ui_clear_bans: "🧹 ALLE BANS LÖSCHEN",
+                ui_empty_bans: "Die Liste der gebannten Tracks ist leer.",
+                ui_unban: "ENTBANNEN",
+                ui_playlist_url: "Link zur neuen YT-Playlist einfügen...",
+                ui_empty_playlists: "Keine Playlists gespeichert. Oben hinzufügen!",
+                ui_remove: "LÖSCHEN",
+                ui_api_title: "🔑 Google API Key Einrichtung",
+                ui_api_safe: "🔒 <strong>Ihre Daten sind 100% sicher!</strong> Ihr API-Schlüssel wird nur lokal im Speicher Ihres Browsers (Local Storage) gespeichert. Er wird niemals an externe Server gesendet (außer an Google).",
+                ui_api_label: "Ihr YouTube Data API v3 Schlüssel:",
+                ui_api_save: "💾 SPEICHERN UND PRÜFEN",
+                ui_api_show: "👁 ZEIGEN",
+                ui_api_hide: "🙈 VERBERGEN",
+                ui_api_howto_title: "Wo bekomme ich einen kostenlosen API-Schlüssel?",
+                ui_api_howto_1: "Melden Sie sich in der <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a> an.",
+                ui_api_howto_2: "Erstellen Sie ein neues Projekt (oder wählen Sie ein bestehendes).",
+                ui_api_howto_3: "Klicken Sie im linken Menü auf 'APIs & Dienste' -> 'Bibliothek'.",
+                ui_api_howto_4: "Suchen und aktivieren Sie: 'YouTube Data API v3'.",
+                ui_api_howto_5: "Gehen Sie zum Tab 'Anmeldedaten' -> 'Anmeldedaten erstellen' -> 'API-Schlüssel'.",
+                ui_api_howto_6: "Kopieren Sie den generierten Schlüssel und fügen Sie ihn oben ein.",
+                ui_tut_title: "🎓 Tutorial: Erste Schritte und Konfiguration",
+                ui_tut_1_title: "1. Schnittstelle und Funktionen",
+                ui_tut_1_desc: "• <strong>Linkes Panel (Basis):</strong> Hier finden Sie Titel aus Ihren Standard-Playlists. Der Player mischt zufällig Songs daraus, wenn die Zuschauer-Warteschlange leer ist.<br>• <strong>Mittleres Panel:</strong> !SR-Schalter, Port-Einstellungen, API-Schlüssel und der Haupt-YouTube-Player.<br>• <strong>Rechtes Panel (!SR Queue):</strong> Zuschauer-Anfragen von Twitch. Sie können hier Tracks mit der Maus <strong>ziehen und ablegen (Drag & Drop)</strong>, um ihre Reihenfolge zu ändern!",
+                ui_tut_2_title: "2. HTTP-Server in Streamer.bot",
+                ui_tut_2_desc_1: "Damit der YouTube-Player und die API ohne Blockaden funktionieren, muss die Datei über einen lokalen HTTP-Server ausgeführt werden. Wir verwenden dafür den integrierten Server in Streamer.bot.",
+                ui_tut_2_desc_2: "Gehen Sie in Streamer.bot zum Tab <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong>.",
+                ui_tut_2_desc_3: "Port einstellen:",
+                ui_tut_2_desc_3b: "(Sie können den empfohlenen Standardwert belassen!)",
+                ui_tut_2_desc_4: "Klicken Sie im Feld <strong>Mappings</strong> auf das Ordnersymbol und zeigen Sie auf den Ordner, in dem sich diese HTML-Datei befindet.",
+                ui_tut_2_desc_4b: "Geben Sie im PATH-Feld den Namen des Unterordners für die Seite an:",
+                ui_tut_2_desc_4c: "(Dies wird Teil der Website-Adresse! z. B. 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_5: "Markieren Sie <strong>Auto Start</strong> und klicken Sie auf <strong>Start Server</strong>.",
+                ui_tut_3_title: "3. WebSocket-Server in Streamer.bot",
+                ui_tut_3_desc_1: "Damit Chat-Befehle (!sr, !skip, löschen usw.) funktionieren, benötigen Sie eine aktive WebSocket-Verbindung.",
+                ui_tut_3_desc_2: "Gehen Sie zu <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
+                ui_tut_3_desc_3: "Port einstellen:",
+                ui_tut_3_desc_3b: "(Sie können den empfohlenen Standardwert belassen!)",
+                ui_tut_3_desc_4: "Markieren Sie <strong>Auto Start</strong> und klicken Sie auf <strong>Start Server</strong>.",
+                ui_tut_4_title: "4. Aktionen in Streamer.bot importieren",
+                ui_tut_4_desc: "Damit Chat-Befehle (!sr, !skip, löschen usw.) funktionieren, benötigen Sie bestimmte Aktionsbefehle und Warteschlangen im Streamer.bot.<br><br>1. Klicken Sie auf die Schaltfläche <strong>Import</strong> in der oberen Leiste von Streamer.bot.<br>2. Kopieren Sie den Code unten, fügen Sie ihn in das leere Feld <em>Import String</em> ein und klicken Sie auf <strong>Import</strong>.",
+                ui_copy_code: "Importcode kopieren",
+                ui_tut_5_title: "5. Google API Konfiguration",
+                ui_tut_5_desc: "Nach dem Klicken auf die Schaltfläche unten in diesem Fenster werden Sie aufgefordert, Ihren kostenlosen API-Schlüssel einzugeben, mit dem das System Videodaten abrufen kann.<br><br>🔒 <strong>Ihre Daten sind 100% sicher!</strong> Ihr API-Schlüssel wird nur lokal im Speicher Ihres Browsers gespeichert. Er wird niemals an externe Server gesendet.",
+                ui_tut_done_file: "🔗 Nach Abschluss der obigen Schritte GEHEN SIE JETZT zur untenstehenden Seite (falls der Link nicht funktioniert, kommen Sie hierher zurück!):",
+                ui_tut_done_http: "🔗 Fertig, alles funktioniert! Ihre Seitenadresse lautet nun:",
+                ui_tut_reminder: "⚠️ Denken Sie daran, dass die Streamer.bot-Einstellungen immer mit denen auf dieser Seite übereinstimmen müssen!",
+                ui_tut_btn_understand: "ICH VERSTEHE, WEITER!",
+                ui_tut_btn_api: "ICH VERSTEHE, API EINRICHTEN",
+                ui_tut_btn_close: "ICH VERSTEHE, SCHLIESSEN",
+
+                msg_sr_on: "Song Request ist jetzt aktiv! Track hinzufügen: !sr YouTube-Link",
+                msg_sr_off: "Song Request wurde gestoppt!",
+                msg_base_play: "▶️ @{user} hat die Basis-Wiedergabe gestartet!",
+                msg_base_empty: "❌ @{user}, die Track-Basis ist leer!",
+                msg_queue_play: "▶️ @{user} hat die Warteschlange gestartet!",
+                msg_resumed: "▶️ @{user} hat den Player fortgesetzt!",
+                msg_already_playing: "❌ @{user}, der Player läuft bereits!",
+                msg_paused: "⏸️ @{user} hat den Player pausiert!",
+                msg_already_paused: "❌ @{user}, der Player ist bereits pausiert oder leer.",
+                msg_stopped: "⏹️ @{user} hat den Player komplett gestoppt!",
+                msg_nothing_playing: "❌ @{user}, gerade läuft nichts!",
+                msg_api_err: "❌ @{user}, YT API-Fehler.",
+                msg_not_found: "❌ @{user}, dieses Video existiert nicht.",
+                msg_load_err: "❌ @{user}, Ladefehler.",
+                msg_song_added: "✅ @{user}, hinzugefügt: {author} - {title} | Position: {pos} | In ca. {m}m {s}s",
+                msg_current: "🎵 @{user}, es läuft: {author} - {title} | Von: {adder} | {link}",
+                msg_skip: "⏭️ @{user} hat den Track übersprungen: {author} - {title}!",
+                msg_skip_empty: "❌ @{user}, es läuft nichts zum Überspringen!",
+                msg_wrong_rm: "🗑️ @{user}, dein Track wurde entfernt: {title}",
+                msg_wrong_none: "❌ @{user}, du hast keine Tracks zum Entfernen.",
+                msg_vol: "🔊 @{user}, Lautstärke: {vol}%",
+                msg_sr_disabled: "❌ @{user}, !sr Anfragen sind derzeit DEAKTIVIERT.",
+                msg_sr_banned: "❌ @{user}, dieser Track ist leider gebannt!",
+                msg_sr_dupe: "❌ @{user}, dieser Track wurde bereits gewünscht!",
+                msg_err_empty: "Gib einen Titel ein oder füge einen YouTube-Link ein!",
+                msg_err_not_found: "Kein Track gefunden für: {info}",
+                msg_err_long: "Track zu lang! (Ist {info}m, Limit ist 15m)",
+                msg_err_cat: "Gefundenes Video ist keine Musik! (Kategorie: {info}). Versuche, 'music' hinzuzufügen.",
+                msg_err_api: "YouTube Server-Fehler. Versuche, einen Link einzufügen.",
+                msg_searching: "🔍 @{user}, suche Track...",
+                msg_err_id: "❌ @{user}, Track-ID nicht erkannt.",
+                msg_err_yt_read: "❌ @{user}, Fehler beim Lesen von YouTube.",
+                msg_ban_auto: "🚫 Track \"{title}\" wurde gebannt und übersprungen!",
+                msg_ban_rm: "🚫 Track \"{title}\" wurde gebannt und aus der Warteschlange entfernt!",
+                msg_bot_blocked: "⚠️ Leider ist der Track von @{user} auf YouTube blockiert. Wird automatisch übersprungen!"
+            },
+            fr: {
+                ui_base_playlists: "PLAYLISTS DE BASE",
+                ui_btn_downloading: "⏳ TÉLÉCHARGEMENT...",
+                ui_btn_start_active: "▶ DÉMARRER / MÉLANGER",
+                ui_btn_start_error: "❌ ERREUR API",
+                ui_btn_start_req: "⚠️ CLÉ API REQUISE",
+                ui_search_base: "🔍 Rechercher (titre ou auteur)...",
+                ui_language: "Langue",
+                ui_sr_toggle_title: "Activer les demandes des spectateurs",
+                ui_ws_port: "Port WebSocket",
+                ui_save_reconnect: "Sauvegarder et reconnecter",
+                ui_bot_connecting: "🔴 Connexion au bot...",
+                ui_bot_connected: "🟢 Bot Connecté",
+                ui_bot_disconnected: "🔴 Bot Déconnecté",
+                ui_track_base: "Base de pistes",
+                ui_manage_playlists: "📁 Gérer les Playlists",
+                ui_api_setup: "Config API",
+                ui_waiting_start: "En attente de démarrage",
+                ui_prev: "⏮ PRÉCÉDENT",
+                ui_play_pause: "⏯ PAUSE / REPRENDRE",
+                ui_stop: "⏹ STOP",
+                ui_next: "⏭ SUIVANT",
+                ui_manual_url: "Collez le lien YouTube ici...",
+                ui_add: "AJOUTER",
+                ui_queue: "FILE D'ATTENTE !SR",
+                ui_banned_btn: "🔨 BANNIS",
+                ui_queue_time_title: "Temps total de la file",
+                ui_queue_count_title: "Nombre total de pistes",
+                ui_now_playing: "🎵 En lecture",
+                ui_no_song: "Aucune chanson",
+                ui_sys_logs: "🔧 JOURNAUX SYSTÈME",
+                ui_changelog_btn: "📜 CHANGELOG",
+                ui_help_btn: "❓ AIDE",
+                ui_ban_title: "🔨 Liste Noire",
+                ui_clear_bans: "🧹 EFFACER TOUS LES BANNISSEMENTS",
+                ui_empty_bans: "La liste est vide.",
+                ui_unban: "DÉBANNIR",
+                ui_playlist_url: "Coller le lien de la nouvelle playlist YT...",
+                ui_empty_playlists: "Aucune playlist. Ajoutez-en une en haut !",
+                ui_remove: "SUPPRIMER",
+                ui_api_title: "🔑 Configuration Clé API Google",
+                ui_api_safe: "🔒 <strong>Vos données sont 100% sécurisées !</strong> Votre clé API est enregistrée uniquement localement dans la mémoire de votre navigateur (Local Storage). Elle n'est jamais envoyée à des serveurs externes (sauf à Google).",
+                ui_api_label: "Votre clé API YouTube Data v3 :",
+                ui_api_save: "💾 SAUVEGARDER ET VÉRIFIER",
+                ui_api_show: "👁 VOIR",
+                ui_api_hide: "🙈 CACHER",
+                ui_api_howto_title: "Où obtenir une clé API gratuite ?",
+                ui_api_howto_1: "Connectez-vous à <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.",
+                ui_api_howto_2: "Créez un nouveau projet (ou sélectionnez-en un existant).",
+                ui_api_howto_3: "Dans le menu de gauche, cliquez sur 'API et services' -> 'Bibliothèque'.",
+                ui_api_howto_4: "Recherchez et activez : 'YouTube Data API v3'.",
+                ui_api_howto_5: "Allez dans l'onglet 'Identifiants' -> 'Créer des identifiants' -> 'Clé API'.",
+                ui_api_howto_6: "Copiez la clé générée et collez-la dans le champ ci-dessus.",
+                ui_tut_title: "🎓 Tutoriel : Premiers pas et configuration",
+                ui_tut_1_title: "1. Interface et fonctionnalités",
+                ui_tut_1_desc: "• <strong>Panneau gauche (Base) :</strong> Vous trouverez ici les pistes de vos playlists par défaut. Le lecteur mélange aléatoirement des chansons lorsqu'il n'y a pas de requêtes de spectateurs.<br>• <strong>Panneau central :</strong> Interrupteur !SR, paramètres des ports, clé API et le lecteur principal YouTube.<br>• <strong>Panneau droit (File !SR) :</strong> Demandes des spectateurs depuis Twitch. Vous pouvez <strong>glisser-déposer (Drag & Drop)</strong> les pistes ici avec votre souris pour changer leur ordre facilement !",
+                ui_tut_2_title: "2. Serveur HTTP dans Streamer.bot",
+                ui_tut_2_desc_1: "Pour que le lecteur YouTube et l'API fonctionnent sans blocages, le fichier doit être exécuté via un serveur HTTP local. Nous utiliserons le serveur intégré de Streamer.bot pour cela.",
+                ui_tut_2_desc_2: "Dans Streamer.bot, allez dans l'onglet <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong>.",
+                ui_tut_2_desc_3: "Définissez le port :",
+                ui_tut_2_desc_3b: "(vous pouvez laisser la valeur par défaut !)",
+                ui_tut_2_desc_4: "Dans le champ <strong>Mappings</strong>, cliquez sur l'icône de dossier et pointez vers le dossier où se trouve ce fichier HTML.",
+                ui_tut_2_desc_4b: "Dans le champ PATH, spécifiez le nom du sous-dossier pour la page :",
+                ui_tut_2_desc_4c: "(Cela fera partie de l'adresse du site ! ex. 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_5: "Cochez <strong>Auto Start</strong> et cliquez sur <strong>Start Server</strong>.",
+                ui_tut_3_title: "3. Serveur WebSocket dans Streamer.bot",
+                ui_tut_3_desc_1: "Pour que les commandes de chat (!sr, !skip, suppression, etc.) fonctionnent, vous avez besoin d'une connexion WebSocket active.",
+                ui_tut_3_desc_2: "Allez dans <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
+                ui_tut_3_desc_3: "Définissez le port :",
+                ui_tut_3_desc_3b: "(vous pouvez laisser la valeur par défaut !)",
+                ui_tut_3_desc_4: "Cochez <strong>Auto Start</strong> et cliquez sur <strong>Start Server</strong>.",
+                ui_tut_4_title: "4. Importer des actions dans Streamer.bot",
+                ui_tut_4_desc: "Pour que les commandes de chat (!sr, !skip, etc.) fonctionnent, vous avez besoin de commandes d'action spécifiques dans Streamer.bot.<br><br>1. Cliquez sur le bouton <strong>Import</strong> dans la barre supérieure de Streamer.bot.<br>2. Copiez le code ci-dessous, collez-le dans le champ vide <em>Import String</em>, et cliquez sur <strong>Import</strong>.",
+                ui_copy_code: "Copier le code d'import",
+                ui_tut_5_title: "5. Configuration de l'API Google",
+                ui_tut_5_desc: "Après avoir cliqué sur le bouton en bas de cette fenêtre, il vous sera demandé d'entrer votre clé API gratuite, qui permet au système de récupérer les données des vidéos.<br><br>🔒 <strong>Vos données sont 100% sécurisées !</strong> Votre clé API est enregistrée uniquement localement dans la mémoire de votre navigateur. Elle n'est jamais envoyée à des serveurs externes.",
+                ui_tut_done_file: "🔗 Après avoir suivi les étapes ci-dessus, ALLEZ MAINTENANT sur la page ci-dessous (si le lien ne fonctionne pas, revenez ici !) :",
+                ui_tut_done_http: "🔗 Terminé, tout fonctionne ! L'adresse de votre page est maintenant :",
+                ui_tut_reminder: "⚠️ N'oubliez pas que les paramètres de Streamer.bot doivent toujours correspondre à ceux de cette page !",
+                ui_tut_btn_understand: "COMPRIS, CONTINUER !",
+                ui_tut_btn_api: "COMPRIS, CONFIGURER L'API",
+                ui_tut_btn_close: "COMPRIS, FERMER",
+
+                msg_sr_on: "Song Request est actif ! Envoyez : !sr lien YouTube",
+                msg_sr_off: "Song Request est désactivé !",
+                msg_base_play: "▶️ @{user} a démarré la base !",
+                msg_base_empty: "❌ @{user}, la base est vide !",
+                msg_queue_play: "▶️ @{user} a démarré la file !",
+                msg_resumed: "▶️ @{user} a repris la lecture !",
+                msg_already_playing: "❌ @{user}, déjà en lecture !",
+                msg_paused: "⏸️ @{user} a mis en pause !",
+                msg_already_paused: "❌ @{user}, déjà en pause ou vide.",
+                msg_stopped: "⏹️ @{user} a tout arrêté !",
+                msg_nothing_playing: "❌ @{user}, rien n'est en lecture actuellement !",
+                msg_api_err: "❌ @{user}, erreur API YT.",
+                msg_not_found: "❌ @{user}, vidéo introuvable.",
+                msg_load_err: "❌ @{user}, erreur de chargement.",
+                msg_song_added: "✅ @{user}, ajouté : {author} - {title} | Position : {pos} | Dans env. {m}m {s}s",
+                msg_current: "🎵 @{user}, lecture : {author} - {title} | Par : {adder} | {link}",
+                msg_skip: "⏭️ @{user} a passé la piste : {author} - {title} !",
+                msg_skip_empty: "❌ @{user}, rien n'est en lecture, rien à passer !",
+                msg_wrong_rm: "🗑️ @{user}, votre piste a été supprimée : {title}",
+                msg_wrong_none: "❌ @{user}, vous n'avez aucune piste à supprimer.",
+                msg_vol: "🔊 @{user}, volume : {vol}%",
+                msg_sr_disabled: "❌ @{user}, les requêtes !sr sont actuellement DÉSACTIVÉES.",
+                msg_sr_banned: "❌ @{user}, malheureusement, cette piste est bannie !",
+                msg_sr_dupe: "❌ @{user}, cette piste a déjà été demandée !",
+                msg_err_empty: "entrez un titre de chanson ou collez un lien YouTube !",
+                msg_err_not_found: "impossible de trouver une piste pour : {info}",
+                msg_err_long: "la piste est trop longue ! (Elle fait {info}m, la limite est de 15m)",
+                msg_err_cat: "la vidéo trouvée n'est pas de la musique ! (Catégorie : {info}). Essayez d'ajouter 'music'.",
+                msg_err_api: "Erreur des serveurs YouTube. Essayez de coller un lien.",
+                msg_searching: "🔍 @{user}, recherche de la piste...",
+                msg_err_id: "❌ @{user}, impossible de reconnaître l'ID de la piste.",
+                msg_err_yt_read: "❌ @{user}, erreur de lecture depuis YouTube.",
+                msg_ban_auto: "🚫 La piste \"{title}\" a été bannie et passée !",
+                msg_ban_rm: "🚫 La piste \"{title}\" a été bannie et retirée de la file !",
+                msg_bot_blocked: "⚠️ Malheureusement, la piste de @{user} est bloquée par YouTube. Elle est passée automatiquement !"
+            },
+            tr: {
+                ui_base_playlists: "TEMEL LİSTELER",
+                ui_btn_downloading: "⏳ İNDİRİLİYOR...",
+                ui_btn_start_active: "▶ BAŞLAT / KARIŞTIR",
+                ui_btn_start_error: "❌ API HATASI",
+                ui_btn_start_req: "⚠️ API ANAHTARI GEREKLİ",
+                ui_search_base: "🔍 Şarkı ara (başlık veya yazar)...",
+                ui_language: "Dil",
+                ui_sr_toggle_title: "İzleyici isteklerini aç / kapat",
+                ui_ws_port: "WebSocket Port",
+                ui_save_reconnect: "Kaydet ve yeniden bağlan",
+                ui_bot_connecting: "🔴 Bota Bağlanıyor...",
+                ui_bot_connected: "🟢 Bot Bağlandı",
+                ui_bot_disconnected: "🔴 Bot Bağlantısı Kesildi",
+                ui_track_base: "Şarkı Veritabanı",
+                ui_manage_playlists: "📁 Listeleri Yönet",
+                ui_api_setup: "API Kurulumu",
+                ui_waiting_start: "Başlangıç bekleniyor",
+                ui_prev: "⏮ ÖNCEKİ",
+                ui_play_pause: "⏯ DURAKLAT / DEVAM ET",
+                ui_stop: "⏹ DURDUR",
+                ui_next: "⏭ SONRAKİ",
+                ui_manual_url: "YouTube linkini buraya yapıştırın...",
+                ui_add: "EKLE",
+                ui_queue: "SIRA !SR",
+                ui_banned_btn: "🔨 YASAKLI",
+                ui_queue_time_title: "Sıradaki şarkıların toplam süresi",
+                ui_queue_count_title: "Toplam şarkı sayısı",
+                ui_now_playing: "🎵 Şimdi Oynatılıyor",
+                ui_no_song: "Şarkı yok",
+                ui_sys_logs: "🔧 SİSTEM GÜNLÜKLERİ",
+                ui_changelog_btn: "📜 CHANGELOG",
+                ui_help_btn: "❓ YARDIM",
+                ui_ban_title: "🔨 Kara Liste",
+                ui_clear_bans: "🧹 TÜM YASAKLARI TEMİZLE",
+                ui_empty_bans: "Yasaklı listesi boş.",
+                ui_unban: "YASAĞI KALDIR",
+                ui_playlist_url: "Yeni YT oynatma listesi linki yapıştırın...",
+                ui_empty_playlists: "Kayıtlı liste yok. Yukarıdan ekleyin!",
+                ui_remove: "SİL",
+                ui_api_title: "🔑 Google API Key Kurulumu",
+                ui_api_safe: "🔒 <strong>Verileriniz %100 güvende!</strong> API anahtarınız yalnızca tarayıcınızın belleğinde (Local Storage) yerel olarak saklanır. Asla harici sunuculara gönderilmez (şarkıları getirmek için doğrudan Google hariç).",
+                ui_api_label: "YouTube Data API v3 Anahtarınız:",
+                ui_api_save: "💾 KAYDET VE KONTROL ET",
+                ui_api_show: "👁 GÖSTER",
+                ui_api_hide: "🙈 GİZLE",
+                ui_api_howto_title: "Nereden ücretsiz API anahtarı alabilirim?",
+                ui_api_howto_1: "<a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>'a giriş yapın.",
+                ui_api_howto_2: "Yeni bir proje oluşturun (veya mevcut olanı seçin).",
+                ui_api_howto_3: "Sol menüde 'API'ler ve Hizmetler' -> 'Kütüphane'ye tıklayın.",
+                ui_api_howto_4: "'YouTube Data API v3'ü arayın ve etkinleştirin.",
+                ui_api_howto_5: "'Kimlik Bilgileri' sekmesine gidin -> 'Kimlik bilgisi oluştur' -> 'API anahtarı'.",
+                ui_api_howto_6: "Oluşturulan anahtarı kopyalayın ve yukarıdaki alana yapıştırın.",
+                ui_tut_title: "🎓 Eğitim: İlk adımlar ve yapılandırma",
+                ui_tut_1_title: "1. Arayüz ve Özellikler",
+                ui_tut_1_desc: "• <strong>Sol Panel (Temel):</strong> Burada varsayılan oynatma listelerinizden şarkılar bulacaksınız. İzleyici sırası boş olduğunda oynatıcı rastgele bu şarkıları çalar.<br>• <strong>Orta Panel:</strong> !SR anahtarı, port ayarları, API anahtarı ve ana YouTube oynatıcısı.<br>• <strong>Sağ Panel (!SR Sırası):</strong> Twitch'ten izleyici istekleri. Sıralarını kolayca değiştirmek için farenizle şarkıları buraya <strong>sürükleyip bırakabilirsiniz (Drag & Drop)</strong>!",
+                ui_tut_2_title: "2. Streamer.bot'ta HTTP Sunucusu",
+                ui_tut_2_desc_1: "YouTube oynatıcısının ve API'nin engelsiz çalışabilmesi için dosyanın yerel bir HTTP sunucusu üzerinden çalıştırılması gerekir. Bunun için Streamer.bot'taki yerleşik sunucuyu kullanacağız.",
+                ui_tut_2_desc_2: "Streamer.bot'ta <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong> sekmesine gidin.",
+                ui_tut_2_desc_3: "Portu Ayarlayın:",
+                ui_tut_2_desc_3b: "(önerilen varsayılanı bırakabilirsiniz!)",
+                ui_tut_2_desc_4: "<strong>Mappings</strong> alanında, klasör simgesine tıklayın ve bu HTML dosyasının bulunduğu klasörü gösterin.",
+                ui_tut_2_desc_4b: "PATH alanında sayfa için alt klasör adını belirtin:",
+                ui_tut_2_desc_4c: "(Bu, web sitesi adresinin bir parçası olacak! örn. 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_5: "<strong>Auto Start</strong>ı işaretleyin ve <strong>Start Server</strong>a tıklayın.",
+                ui_tut_3_title: "3. Streamer.bot'ta WebSocket Sunucusu",
+                ui_tut_3_desc_1: "Sohbet komutlarının (!sr, !skip, silme vb.) çalışması için aktif bir WebSocket bağlantısına ihtiyacınız vardır.",
+                ui_tut_3_desc_2: "<strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>a gidin.",
+                ui_tut_3_desc_3: "Portu ayarlayın:",
+                ui_tut_3_desc_3b: "(önerilen varsayılanı bırakabilirsiniz!)",
+                ui_tut_3_desc_4: "<strong>Auto Start</strong>ı işaretleyin ve <strong>Start Server</strong>a tıklayın.",
+                ui_tut_4_title: "4. Eylemleri Streamer.bot'a Aktarın",
+                ui_tut_4_desc: "Sohbet komutlarının çalışması için Streamer.bot'ta belirli eylem komutlarına ve sıralara ihtiyacınız var.<br><br>1. Streamer.bot'un üst çubuğundaki <strong>Import</strong> düğmesine tıklayın.<br>2. Aşağıdaki kodu kopyalayın, boş <em>Import String</em> alanına yapıştırın ve <strong>Import</strong>a tıklayın.",
+                ui_copy_code: "İçe Aktarma Kodunu Kopyala",
+                ui_tut_5_title: "5. Google API Yapılandırması",
+                ui_tut_5_desc: "Bu pencerenin altındaki düğmeye tıkladıktan sonra, sistemin video verilerini çekmesini sağlayan ücretsiz API anahtarınızı girmeniz istenecektir.<br><br>🔒 <strong>Verileriniz %100 güvende!</strong> API anahtarınız yalnızca tarayıcınızın belleğinde yerel olarak saklanır. Asla harici sunuculara gönderilmez.",
+                ui_tut_done_file: "🔗 Yukarıdaki adımları tamamladıktan sonra ŞİMDİ aşağıdaki sayfaya gidin (bağlantı çalışmazsa buraya geri dönün!):",
+                ui_tut_done_http: "🔗 Bitti, her şey çalışıyor! Sayfa adresiniz artık:",
+                ui_tut_reminder: "⚠️ Streamer.bot ayarlarının her zaman bu sayfadaki ayarlarla aynı olması gerektiğini unutmayın!",
+                ui_tut_btn_understand: "ANLADIM, DEVAM ET!",
+                ui_tut_btn_api: "ANLADIM, API KUR",
+                ui_tut_btn_close: "ANLADIM, KAPAT",
+
+                msg_sr_on: "Song Request aktif! Şarkı ekle: !sr YouTube linki",
+                msg_sr_off: "Song Request durduruldu!",
+                msg_base_play: "▶️ @{user} temel listeyi başlattı!",
+                msg_base_empty: "❌ @{user}, şarkı veritabanı boş!",
+                msg_queue_play: "▶️ @{user} sırayı başlattı!",
+                msg_resumed: "▶️ @{user} oynatıcıyı devam ettirdi!",
+                msg_already_playing: "❌ @{user}, oynatıcı zaten çalışıyor!",
+                msg_paused: "⏸️ @{user} oynatıcıyı duraklattı!",
+                msg_already_paused: "❌ @{user}, zaten duraklatıldı veya boş.",
+                msg_stopped: "⏹️ @{user} oynatıcıyı tamamen durdurdu!",
+                msg_nothing_playing: "❌ @{user}, şu an hiçbir şey çalmıyor!",
+                msg_api_err: "❌ @{user}, YT API hatası.",
+                msg_not_found: "❌ @{user}, bu video mevcut değil.",
+                msg_load_err: "❌ @{user}, yükleme hatası.",
+                msg_song_added: "✅ @{user}, eklendi: {author} - {title} | Sıra: {pos} | Yaklaşık {m}d {s}s sonra",
+                msg_current: "🎵 @{user}, çalan: {author} - {title} | Ekleyen: {adder} | {link}",
+                msg_skip: "⏭️ @{user} şarkıyı atladı: {author} - {title}!",
+                msg_skip_empty: "❌ @{user}, şu an çalan şarkı yok, atlanacak bir şey yok!",
+                msg_wrong_rm: "🗑️ @{user}, şarkınız silindi: {title}",
+                msg_wrong_none: "❌ @{user}, silinecek şarkınız yok.",
+                msg_vol: "🔊 @{user}, ses: %{vol}",
+                msg_sr_disabled: "❌ @{user}, !sr istekleri KAPALI.",
+                msg_sr_banned: "❌ @{user}, maalesef bu şarkı yasaklı!",
+                msg_sr_dupe: "❌ @{user}, bu şarkı zaten istendi!",
+                msg_err_empty: "şarkı adı yazın veya YouTube linki yapıştırın!",
+                msg_err_not_found: "şarkı bulunamadı: {info}",
+                msg_err_long: "şarkı çok uzun! ({info}d, sınır 15d)",
+                msg_err_cat: "bulunan video müzik değil! (Kategori: {info}). Aramanıza 'music' kelimesini eklemeyi deneyin.",
+                msg_err_api: "YouTube sunucu hatası. Link yapıştırmayı deneyin.",
+                msg_searching: "🔍 @{user}, şarkı aranıyor...",
+                msg_err_id: "❌ @{user}, şarkı ID'si tanınmadı.",
+                msg_err_yt_read: "❌ @{user}, YouTube'dan okuma hatası.",
+                msg_ban_auto: "🚫 \"{title}\" yasaklandı ve atlandı!",
+                msg_ban_rm: "🚫 \"{title}\" yasaklandı ve sıradan çıkarıldı!",
+                msg_bot_blocked: "⚠️ Maalesef @{user}'ın şarkısı YouTube tarafından engellendi. Otomatik olarak atlanıyor!"
+            }
+        };
+
+        let currentLang = localStorage.getItem('ytm_lang') || 'en';
+
+        function t(key, vars = {}) {
+            let dict = i18n[currentLang] || i18n['en'];
+            let text = dict[key] || i18n['en'][key] || key;
+            for (let k in vars) {
+                text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), vars[k]);
+            }
+            return text;
+        }
+
+        function changeLanguage(langCode) {
+            currentLang = langCode;
+            localStorage.setItem('ytm_lang', langCode);
+            applyTranslations();
+            log(`🌐 Language changed to: ${langCode.toUpperCase()}`);
+
+            // Wymuszenie ponownego połączenia WS po zmianie języka
+            if(ws) {
+                ws.onclose = null; 
+                ws.close();
+                clearTimeout(wsReconnectTimeout);
+                connectWebsocket();
+            }
+        }
+
+        function applyTranslations() {
+            document.getElementById('lang-select').value = currentLang;
+            
+            // HTML nodes
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                el.innerHTML = t(el.getAttribute('data-i18n'));
+            });
+            // Placeholders
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
+            });
+            // Titles
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                el.title = t(el.getAttribute('data-i18n-title'));
+            });
+
+            // Re-render dynamic elements
+            renderBaseList();
+            renderQueue();
+            if(document.getElementById('ban-modal').style.display === 'flex') renderBanList();
+            if(document.getElementById('playlist-modal').style.display === 'flex') renderPlaylistManager();
+            
+            updateApiStatusUI(document.getElementById('api-status-icon').getAttribute('data-last-status') || 'init');
+            
+            // Update Start Button
+            if (!document.getElementById('btn-run').disabled) {
+                document.getElementById('btn-run').innerText = masterList.length > 0 ? t('ui_btn_start_active') : t('ui_btn_start_error');
+            } else {
+                if(API_KEY) document.getElementById('btn-run').innerText = t('ui_btn_downloading');
+                else document.getElementById('btn-run').innerText = t('ui_btn_start_req');
+            }
+            
+            updateTutLink(); 
+        }
+
+        // =========================================================================
+        let API_KEY = localStorage.getItem('ytm_api_key') || ''; 
+        let WS_PORT = localStorage.getItem('ytm_ws_port') || '8080';
+        // =========================================================================
+        
+        let player, ws, wsReconnectTimeout;
+        let masterList = [];    
+        let playQueue = [];     
+        let playHistory = [];   
+        let currentSongInfo = null; 
+        let titleCache = {};    
+        let dragSourceIndex = null;
+        let isSrEnabled = false; 
+
+        document.getElementById('ws-port-input').value = WS_PORT;
+        document.getElementById('tut-ws-port').value = WS_PORT; 
+        
+        // Inicjalizacja języka przy starcie
+        window.onload = () => { applyTranslations(); };
+
+        function updateApiStatusUI(status) {
+            const icon = document.getElementById('api-status-icon');
+            icon.setAttribute('data-last-status', status);
+            if(status === 'ok') icon.innerText = '🟢';
+            else if (status === 'error') icon.innerText = '🔴';
+            else icon.innerText = '⚪';
+        }
+
+        async function verifyApiKey(key) {
+            if(!key) { updateApiStatusUI('error'); return false; }
+            try {
+                let res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=id&id=UC_x5XG1OV2P6uZZ5FSM9Ttw&key=${key}`);
+                let data = await res.json();
+                if(data.error) {
+                    updateApiStatusUI('error');
+                    return false;
+                }
+                updateApiStatusUI('ok');
+                return true;
+            } catch(e) {
+                updateApiStatusUI('error');
+                return false;
+            }
+        }
+
+        function checkApiSetup() {
+            if (!API_KEY || API_KEY.trim() === '') {
+                updateApiStatusUI('error');
+                openApiSetup(true); 
+                document.getElementById('btn-run').innerText = t('ui_btn_start_req');
+                return false;
+            }
+            return true;
+        }
+
+        function openApiSetup(isInitial = false) {
+            document.getElementById('api-key-input').value = API_KEY;
+            document.getElementById('api-modal').style.display = 'flex';
+            
+            const closeBtn = document.getElementById('api-close-btn');
+            if (isInitial && (!API_KEY || API_KEY === '')) closeBtn.style.display = 'none';
+            else closeBtn.style.display = 'block';
+        }
+
+        function closeApiSetup(forceCheck = false) {
+            if (forceCheck && (!API_KEY || API_KEY.trim() === '')) {
+                alert("API KEY IS REQUIRED!");
+                return;
+            }
+            document.getElementById('api-modal').style.display = 'none';
+        }
+
+        async function saveApiKey() {
+            const inputVal = document.getElementById('api-key-input').value.trim();
+            if (inputVal === '') return;
+            
+            updateApiStatusUI('loading');
+            let isValid = await verifyApiKey(inputVal);
+            
+            if (isValid) {
+                API_KEY = inputVal;
+                localStorage.setItem('ytm_api_key', API_KEY);
+                closeApiSetup();
+                log("🔑 API Key Verified.");
+
+                if (player && typeof player.getPlayerState === 'function') fetchFullPlaylistFromAPI();
+                else document.getElementById('btn-run').innerText = t('ui_btn_downloading');
+            } else {
+                alert("Invalid API Key!");
+            }
+        }
+
+        function toggleApiVisibility() {
+            const input = document.getElementById('api-key-input');
+            const btn = document.getElementById('btn-show-api');
+            if (input.type === 'password') { input.type = 'text'; btn.innerText = t('ui_api_hide'); } 
+            else { input.type = 'password'; btn.innerText = t('ui_api_show'); }
+        }
+
+        function saveWsPort() {
+            const newPort = document.getElementById('ws-port-input').value.trim();
+            if(newPort && !isNaN(newPort)) {
+                WS_PORT = newPort;
+                localStorage.setItem('ytm_ws_port', WS_PORT);
+                document.getElementById('tut-ws-port').value = WS_PORT; 
+                log(`🔌 WS Port: ${WS_PORT}`, "warn");
+                if(ws) {
+                    ws.onclose = null; 
+                    ws.close();
+                    clearTimeout(wsReconnectTimeout);
+                    connectWebsocket();
+                }
+            }
+        }
+
+        function updateTutLink() {
+            let hp = document.getElementById('tut-http-port').value.trim() || '7474';
+            let folder = document.getElementById('tut-folder').value.trim() || 'YTM';
+            let wp = document.getElementById('tut-ws-port').value.trim() || '8080';
+            
+            folder = folder.replace(/^\/+|\/+$/g, '');
+            let finalFolder = folder ? `${folder}/` : '';
+            
+            let url = `http://localhost:${hp}/${finalFolder}index.html`;
+            let a = document.getElementById('tut-final-link');
+            if(a) { a.href = url; a.innerText = url; }
+            
+            document.getElementById('ws-port-input').value = wp;
+            
+            // Logika wyświetlania i ukrywania przycisku na podstawie protokołu
+            let doneTextEl = document.getElementById('tut-done-text');
+            let closeBtn = document.getElementById('tut-close-btn');
+            
+            if (window.location.protocol === 'file:') {
+                if(doneTextEl) doneTextEl.innerHTML = t('ui_tut_done_file');
+                if(closeBtn) closeBtn.style.display = 'none'; // Całkowicie ukrywamy przycisk
+            } else {
+                if(doneTextEl) doneTextEl.innerHTML = t('ui_tut_done_http');
+                if(closeBtn) {
+                    closeBtn.style.display = 'inline-block'; // Pokazujemy przycisk
+                    closeBtn.classList.add('btn-pulse');     // Dodajemy animację pulsowania
+                }
+            }
+        }
+
+        function openTutorial() { 
+            updateTutLink(); 
+            const btn = document.getElementById('tut-close-btn');
+            if (!localStorage.getItem('ytm_tutorial_seen') || !API_KEY) {
+                btn.innerText = t('ui_tut_btn_api');
+            } else {
+                btn.innerText = t('ui_tut_btn_close');
+            }
+            document.getElementById('tutorial-modal').style.display = 'flex'; 
+        }
+        
+        function closeTutorial() {
+            const currentWp = document.getElementById('tut-ws-port').value.trim();
+            if(currentWp !== WS_PORT && !isNaN(currentWp)) saveWsPort(); 
+
+            localStorage.setItem('ytm_tutorial_seen', 'true');
+            document.getElementById('tutorial-modal').style.display = 'none';
+
+            if (!API_KEY || API_KEY.trim() === '') openApiSetup(true);
+        }
+
+        function openChangelog() { document.getElementById('changelog-modal').style.display = 'flex'; }
+        function closeChangelog() { document.getElementById('changelog-modal').style.display = 'none'; }
+
+        function copySbCode() {
+            const copyText = document.getElementById("sb-import-code");
+            copyText.select();
+            copyText.setSelectionRange(0, 99999); 
+            navigator.clipboard.writeText(copyText.value).then(() => {
+                alert("Copied to clipboard!");
+            });
+        }
+
+        let savedPlaylists = JSON.parse(localStorage.getItem('ytm_base_playlists')) || [
+            { id: 'PL9O6SbAVrliMxCJ-40pYLNZHXFYYZ5SiC', title: 'YTM Playlist' }
+        ];
+
+        if (savedPlaylists.length > 0 && typeof savedPlaylists[0] === 'string') {
+            savedPlaylists = savedPlaylists.map(id => ({ id: id, title: `Playlista: ${id}` }));
+            localStorage.setItem('ytm_base_playlists', JSON.stringify(savedPlaylists));
+        }
+
+        async function addBasePlaylist() {
+            if (!checkApiSetup()) return;
+
+            const url = document.getElementById('base-playlist-url').value;
+            const match = url.match(/[?&]list=([^#\&\?]+)/);
+            if (match && match[1]) {
+                const pid = match[1];
+                if (!savedPlaylists.some(p => p.id === pid)) {
+                    document.getElementById('base-playlist-url').value = "...";
+                    try {
+                        let res = await fetch(`https://www.googleapis.com/youtube/v3/playlists?part=snippet&id=${pid}&key=${API_KEY}`);
+                        let data = await res.json();
+                        
+                        if(data.error) {
+                             log(`⚠️ API Error: ${data.error.message}`, "error");
+                             document.getElementById('base-playlist-url').value = "";
+                             return;
+                        }
+
+                        let title = (data.items && data.items.length > 0) ? data.items[0].snippet.title : `Playlist: ${pid}`;
+                        
+                        savedPlaylists.push({ id: pid, title: title });
+                        localStorage.setItem('ytm_base_playlists', JSON.stringify(savedPlaylists));
+                        document.getElementById('base-playlist-url').value = "";
+                        log(`📥 Added playlist: ${title}`);
+                        
+                        renderPlaylistManager(); 
+                        fetchFullPlaylistFromAPI();
+                    } catch (e) {
+                        document.getElementById('base-playlist-url').value = "";
+                    }
+                }
+            }
+        }
+
+        function removeBasePlaylist(index) {
+            let removed = savedPlaylists.splice(index, 1)[0];
+            localStorage.setItem('ytm_base_playlists', JSON.stringify(savedPlaylists));
+            log(`🗑️ Removed playlist: ${removed.title}`, "warn");
+            renderPlaylistManager();
+            fetchFullPlaylistFromAPI(); 
+        }
+
+        function openPlaylistManager() { renderPlaylistManager(); document.getElementById('playlist-modal').style.display = 'flex'; }
+        function closePlaylistManager() { document.getElementById('playlist-modal').style.display = 'none'; }
+
+        function renderPlaylistManager() {
+            const container = document.getElementById('playlist-list-content');
+            if(savedPlaylists.length === 0) {
+                container.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t('ui_empty_playlists')}</div>`;
+                return;
+            }
+            container.innerHTML = savedPlaylists.map((p, i) => `
+                <div class="modal-item playlist-style">
+                    <div class="modal-item-title" title="${p.id}">🎵 ${p.title}</div>
+                    <button class="btn-modal-action danger" onclick="removeBasePlaylist(${i})">${t('ui_remove')}</button>
+                </div>
+            `).join('');
+        }
+
+        let bannedSongs = JSON.parse(localStorage.getItem('ytm_banned_songs')) || [];
+        if (bannedSongs.length > 0 && typeof bannedSongs[0] === 'string') {
+            bannedSongs = bannedSongs.map(id => ({ id: id, title: "Unknown (Banned earlier)" }));
+            localStorage.setItem('ytm_banned_songs', JSON.stringify(bannedSongs));
+        }
+
+        function banCurrentSong() {
+            if (!currentSongInfo) return;
+            if (!bannedSongs.some(b => b.id === currentSongInfo.id)) {
+                bannedSongs.push({ id: currentSongInfo.id, title: currentSongInfo.title }); 
+                localStorage.setItem('ytm_banned_songs', JSON.stringify(bannedSongs)); 
+                log(`🔨 Banned current: ${currentSongInfo.title}`, "warn");
+                if (currentSongInfo.user !== "Streamer" && currentSongInfo.user !== "Auto") {
+                    sendChatMessage(t('msg_ban_auto', {title: currentSongInfo.title}));
+                }
+            }
+            skipSong(); 
+        }
+
+        function banSong(index) {
+            let song = playQueue[index];
+            if (!bannedSongs.some(b => b.id === song.id)) {
+                bannedSongs.push({ id: song.id, title: song.title }); 
+                localStorage.setItem('ytm_banned_songs', JSON.stringify(bannedSongs)); 
+                log(`🔨 Banned: ${song.title}`, "warn");
+                if (song.user !== "Streamer" && song.user !== "Auto") {
+                    sendChatMessage(t('msg_ban_rm', {title: song.title}));
+                }
+            }
+            removeSongFromUI(index);
+        }
+
+        function unbanSong(index) {
+            let unbanned = bannedSongs.splice(index, 1)[0];
+            localStorage.setItem('ytm_banned_songs', JSON.stringify(bannedSongs));
+            log(`✅ Unbanned: ${unbanned.title}`, "normal");
+            renderBanList(); 
+        }
+
+        function clearAllBans() {
+            if(confirm("Are you sure?")) {
+                bannedSongs = [];
+                localStorage.removeItem('ytm_banned_songs');
+                log("🧹 Blacklist cleared!", "warn");
+                renderBanList();
+            }
+        }
+
+        function openBanList() { renderBanList(); document.getElementById('ban-modal').style.display = 'flex'; }
+        function closeBanList() { document.getElementById('ban-modal').style.display = 'none'; }
+
+        function renderBanList() {
+            const container = document.getElementById('ban-list-content');
+            if(bannedSongs.length === 0) {
+                container.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t('ui_empty_bans')}</div>`;
+                return;
+            }
+            container.innerHTML = bannedSongs.map((b, i) => `
+                <div class="modal-item">
+                    <div class="modal-item-title">${b.title}</div>
+                    <button class="btn-modal-action" onclick="unbanSong(${i})">${t('ui_unban')}</button>
+                </div>
+            `).join('');
+        }
+
+        function cleanAuthorName(name) {
+            if (!name) return "YouTube";
+            return name.replace(/\s*-\s*Topic$/i, "").replace(/\s*-\s*temat$/i, "").trim();
+        }
+
+        function formatTime(totalSeconds) {
+            if (!totalSeconds) return "0:00";
+            let m = Math.floor(totalSeconds / 60);
+            let s = totalSeconds % 60;
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        function parseISO8601Duration(duration) {
+            let match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+            if (!match) return 210;
+            let h = parseInt(match[1]) || 0;
+            let m = parseInt(match[2]) || 0;
+            let s = parseInt(match[3]) || 0;
+            return (h * 3600) + (m * 60) + s;
+        }
+
+        function log(msg, type='normal') {
+            const c = document.getElementById('log-content');
+            const color = type === 'error' ? '#ff4d4d' : (type === 'warn' ? '#ffaa00' : '#00ff00');
+            c.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+            document.getElementById('debug-console').scrollTop = document.getElementById('debug-console').scrollHeight;
+        }
+
+        function toggleDebug() {
+            const consoleEl = document.getElementById('debug-console');
+            const topSection = document.getElementById('app-top-section');
+            const btns = document.getElementById('floating-btns');
+            
+            if (consoleEl.style.display === 'block') {
+                consoleEl.style.display = 'none';
+                topSection.classList.remove('debug-open');
+                btns.style.bottom = '50px';
+            } else {
+                consoleEl.style.display = 'block';
+                topSection.classList.add('debug-open');
+                consoleEl.scrollTop = consoleEl.scrollHeight;
+                btns.style.bottom = '200px'; 
+            }
+        }
+
+        function toggleSR(skipMsg = false) {
+            isSrEnabled = document.getElementById('sr-toggle-cb').checked;
+            const textEl = document.getElementById('sr-status-text');
+            if (isSrEnabled) {
+                textEl.innerText = "!SR ON";
+                textEl.style.color = "#00ff88";
+                textEl.style.textShadow = "0 0 10px rgba(0,255,136,0.5)";
+                if(!skipMsg) sendChatMessage(t('msg_sr_on'));
+            } else {
+                textEl.innerText = "!SR OFF";
+                textEl.style.color = "var(--red)";
+                textEl.style.textShadow = "0 0 5px rgba(0,0,0,0.5)";
+                if(!skipMsg) sendChatMessage(t('msg_sr_off'));
+            }
+            if(!skipMsg) log(`SR Toggle: ${isSrEnabled}`, "warn");
+        }
+
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(tag);
+
+        function onYouTubeIframeAPIReady() {
+            log("YT Player init...");
+            player = new YT.Player('player', {
+                height: '100%', width: '100%', 
+                playerVars: { 'enablejsapi': 1, 'controls': 1, 'origin': window.location.origin },
+                events: { 'onReady': onPlayerReady, 'onStateChange': onPlayerStateChange, 'onError': onPlayerError }
+            });
+        }
+
+        function onPlayerError(e) {
+            log(`⚠️ YT Error (${e.data}). Skip in 3s...`, "error");
+            document.getElementById('now-playing-title').innerText = "❌ ERROR - SKIPPING...";
+            
+            setTimeout(() => {
+                if (currentSongInfo && currentSongInfo.user !== "Auto") sendChatMessage(t('msg_bot_blocked', {user: currentSongInfo.user}));
+                playNext();
+            }, 3000);
+        }
+
+        async function onPlayerReady() {
+            connectWebsocket();
+            
+            if (!localStorage.getItem('ytm_tutorial_seen')) {
+                openTutorial();
+            } else {
+                if (!checkApiSetup()) return; 
+                let isValid = await verifyApiKey(API_KEY);
+                if(isValid) fetchFullPlaylistFromAPI();
+                else {
+                    log("⚠️ API Key error.", "error");
+                    document.getElementById('btn-run').innerText = t('ui_btn_start_error');
+                    openApiSetup();
+                }
+            }
+        }
+
+        async function fetchFullPlaylistFromAPI() {
+            if(savedPlaylists.length === 0) {
+                document.getElementById('base-list').innerHTML = `<div style="text-align:center; padding: 20px; color: #888;">${t('ui_empty_playlists')}</div>`;
+                document.getElementById('base-count').innerText = `🎵 0`;
+                document.getElementById('btn-run').disabled = true;
+                return;
+            }
+
+            document.getElementById('btn-run').innerText = t('ui_btn_downloading');
+            document.getElementById('btn-run').disabled = true;
+            masterList = []; titleCache = {};
+
+            try {
+                for(let pObj of savedPlaylists) {
+                    let pid = pObj.id;
+                    let nextPageToken = '';
+                    do {
+                        let url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${pid}&key=${API_KEY}`;
+                        if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+                        let response = await fetch(url);
+                        let data = await response.json();
+                        
+                        if(data.error) {
+                            if (data.error.code === 400 || data.error.code === 403) {
+                                document.getElementById('btn-run').innerText = t('ui_btn_start_error');
+                                updateApiStatusUI('error');
+                                openApiSetup();
+                                return; 
+                            }
+                            break; 
+                        }
+
+                        if(data.items && data.items.length > 0) {
+                            let ids = data.items.map(item => item.snippet.resourceId.videoId).join(',');
+                            let vidUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${ids}&key=${API_KEY}`;
+                            let vidRes = await fetch(vidUrl);
+                            let vidData = await vidRes.json();
+                            
+                            let durations = {};
+                            if(vidData.items) {
+                                vidData.items.forEach(v => { durations[v.id] = parseISO8601Duration(v.contentDetails.duration); });
+                            }
+
+                            data.items.forEach(item => {
+                                let id = item.snippet.resourceId.videoId;
+                                let title = item.snippet.title;
+                                if(title === "Private video" || title === "Deleted video") return;
+                                
+                                if(!masterList.includes(id)) {
+                                    masterList.push(id);
+                                    titleCache[id] = { title: title, author: cleanAuthorName(item.snippet.videoOwnerChannelTitle), duration: durations[id] || 210 };
+                                }
+                            });
+                        }
+                        nextPageToken = data.nextPageToken;
+                    } while (nextPageToken);
+                }
+                
+                log(`Loaded ${masterList.length} tracks.`);
+                document.getElementById('base-count').innerText = `🎵 ${masterList.length}`;
+                const btn = document.getElementById('btn-run');
+                btn.innerText = t('ui_btn_start_active');
+                btn.disabled = false;
+                renderBaseList();
+            } catch (e) {
+                log("Error: " + e.message, "error");
+            }
+        }
+
+        function startSystem() {
+            if (masterList.length === 0) return;
+            log("Shuffling...");
+            let shuffled = [...masterList];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            playQueue = shuffled.map(id => {
+                let info = titleCache[id];
+                return { id: id, title: info.title, author: info.author, user: "Auto", duration: info.duration };
+            });
+            renderQueue(); playNext();
+        }
+
+        function playNext() {
+            if(currentSongInfo) playHistory.push(currentSongInfo);
+            
+            if (playQueue.length > 0) {
+                currentSongInfo = playQueue.shift();
+                player.loadVideoById(currentSongInfo.id);
+                renderQueue();
+            } else {
+                currentSongInfo = null;
+                document.getElementById('now-playing-title').innerText = t('ui_waiting_start');
+                document.getElementById('now-playing-meta').innerText = "---";
+                renderQueue();
+                startSystem(); 
+            }
+        }
+
+        function onPlayerStateChange(e) {
+            if (e.data === 0) playNext(); 
+            if (e.data === 1) {           
+                document.getElementById('now-playing-title').innerText = currentSongInfo.title;
+                document.getElementById('now-playing-meta').innerText = currentSongInfo.user === "Auto" ? `Auto` : `👤 ${currentSongInfo.user}`;
+            }
+        }
+
+        function skipSong() { log("⏭️ SKIP", "warn"); playNext(); }
+        
+        function togglePlay() { 
+            if (!currentSongInfo) {
+                if (playQueue.length === 0) {
+                    if (masterList.length > 0) startSystem();
+                } else {
+                    playNext();
+                }
+                return;
+            }
+
+            if(player.getPlayerState() === 1) { player.pauseVideo(); } 
+            else { player.playVideo(); }
+        }
+        
+        function stopSongUI() { 
+            player.stopVideo(); 
+            document.getElementById('now-playing-title').innerText = "STOP"; 
+        }
+
+        function playFromChat(user) {
+            if (!currentSongInfo) {
+                if (playQueue.length === 0) {
+                    if (masterList.length > 0) {
+                        sendChatMessage(t('msg_base_play', {user: user}));
+                        startSystem();
+                    } else {
+                        sendChatMessage(t('msg_base_empty', {user: user}));
+                    }
+                } else {
+                    sendChatMessage(t('msg_queue_play', {user: user}));
+                    playNext();
+                }
+                return;
+            }
+
+            if (player.getPlayerState() !== 1) {
+                player.playVideo();
+                sendChatMessage(t('msg_resumed', {user: user}));
+            } else {
+                sendChatMessage(t('msg_already_playing', {user: user}));
+            }
+        }
+
+        function pauseFromChat(user) {
+            if (currentSongInfo && player.getPlayerState() === 1) {
+                player.pauseVideo();
+                sendChatMessage(t('msg_paused', {user: user}));
+            } else {
+                sendChatMessage(t('msg_already_paused', {user: user}));
+            }
+        }
+
+        function stopFromChat(user) {
+            if (currentSongInfo && player.getPlayerState() !== 5) {
+                player.stopVideo();
+                document.getElementById('now-playing-title').innerText = "STOP";
+                sendChatMessage(t('msg_stopped', {user: user}));
+            } else {
+                sendChatMessage(t('msg_nothing_playing', {user: user}));
+            }
+        }
+        
+        function prevSong() {
+            if (playHistory.length > 0) {
+                if(currentSongInfo) playQueue.unshift(currentSongInfo);
+                currentSongInfo = playHistory.pop();
+                player.loadVideoById(currentSongInfo.id);
+                renderQueue();
+            } else player.seekTo(0); 
+        }
+
+        async function fetchAndAddById(videoId, user) {
+            if (!checkApiSetup()) return;
+            try {
+                let url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoId}&key=${API_KEY}`;
+                let res = await fetch(url);
+                let data = await res.json();
+                
+                if (data.error) {
+                     if (user !== "Streamer") sendChatMessage(t('msg_api_err', {user: user}));
+                     return;
+                }
+
+                if (data.items && data.items.length > 0) {
+                    let item = data.items[0];
+                    addSongFromChat({ id: videoId, user: user, title: item.snippet.title, author: cleanAuthorName(item.snippet.channelTitle), duration: parseISO8601Duration(item.contentDetails.duration) });
+                } else {
+                    if(user !== "Streamer") sendChatMessage(t('msg_not_found', {user: user}));
+                }
+            } catch(e) {
+                if (user !== "Streamer") sendChatMessage(t('msg_load_err', {user: user}));
+            }
+        }
+
+        function addManualUrl() {
+            const inputEl = document.getElementById('manual-url');
+            const url = inputEl.value.trim();
+            if(!url) return;
+            const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+            const videoId = match ? match[1] : (url.length === 11 ? url : null);
+            if(!videoId) return;
+            inputEl.value = ""; 
+            fetchAndAddById(videoId, "Streamer");
+        }
+
+        function addSongFromChat(songObj, force = false) {
+            if(songObj.author) songObj.author = cleanAuthorName(songObj.author);
+            songObj.isNew = true;
+
+            let insertIndex = playQueue.findIndex(song => song.user === 'Auto');
+            if (insertIndex === -1) { playQueue.push(songObj); insertIndex = playQueue.length - 1; } 
+            else playQueue.splice(insertIndex, 0, songObj);
+            
+            renderQueue();
+            log(`➕ Added: "${songObj.title}" by ${songObj.user}`, "normal");
+
+            let etaSeconds = 0;
+            if (player.getPlayerState() === 1 && player.getDuration() > 0) etaSeconds += (player.getDuration() - player.getCurrentTime());
+            for(let i = 0; i < insertIndex; i++) etaSeconds += playQueue[i].duration || 210;
+
+            let displayPosition = insertIndex + 2; 
+            if (songObj.user !== "Streamer") {
+                sendChatMessage(t('msg_song_added', {
+                    user: songObj.user,
+                    author: songObj.author,
+                    title: songObj.title,
+                    pos: displayPosition,
+                    m: Math.floor(etaSeconds / 60),
+                    s: Math.floor(etaSeconds % 60)
+                }));
+            }
+        }
+
+        function removeSongFromUI(index) {
+            let removed = playQueue.splice(index, 1)[0];
+            renderQueue();
+        }
+
+        function sendChatMessage(msg) {
+            if(ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({"request": "DoAction", "action": { "name": "ChatMessage" }, "args": { "message": msg }, "id": "MsgOut" }));
+            }
+        }
+
+        function handleGetSong(user) {
+            if (currentSongInfo) {
+                sendChatMessage(t('msg_current', {
+                    user: user,
+                    author: currentSongInfo.author,
+                    title: currentSongInfo.title,
+                    adder: currentSongInfo.user,
+                    link: `https://youtu.be/${currentSongInfo.id}`
+                }));
+            }
+            else sendChatMessage(t('msg_nothing_playing', {user: user}));
+        }
+
+        function handleSkipSong(user) { 
+            if (currentSongInfo) {
+                sendChatMessage(t('msg_skip', {user: user, author: currentSongInfo.author, title: currentSongInfo.title}));
+            } else {
+                sendChatMessage(t('msg_skip_empty', {user: user}));
+            }
+            skipSong(); 
+        }
+
+        function handleWrongSong(user) {
+            let foundIndex = -1;
+            for (let i = playQueue.length - 1; i >= 0; i--) {
+                if (playQueue[i].user.toLowerCase() === user.toLowerCase()) { foundIndex = i; break; }
+            }
+            if (foundIndex !== -1) {
+                let removed = playQueue.splice(foundIndex, 1)[0];
+                renderQueue();
+                sendChatMessage(t('msg_wrong_rm', {user: user, title: removed.title}));
+            } else sendChatMessage(t('msg_wrong_none', {user: user}));
+        }
+
+        function handleVolume(data) {
+            if (!player || !player.getVolume) return;
+            let currentVol = player.getVolume();
+            let newVol = currentVol;
+            if (data.mode === "add") newVol = currentVol + data.value;
+            else if (data.mode === "sub") newVol = currentVol - data.value;
+            else if (data.mode === "set") newVol = data.value;
+            if (newVol > 100) newVol = 100; if (newVol < 0) newVol = 0;
+            if (data.mode !== "get") {
+                player.setVolume(newVol);
+                sendChatMessage(t('msg_vol', {user: data.user, vol: newVol}));
+            } else sendChatMessage(t('msg_vol', {user: data.user, vol: currentVol}));
+        }
+
+        function handleDragStart(e) { dragSourceIndex = parseInt(e.currentTarget.getAttribute('data-index')); e.currentTarget.style.opacity = '0.4'; }
+        function handleDragOver(e) { e.preventDefault(); e.currentTarget.style.borderTop = '3px solid var(--accent)'; }
+        function handleDragLeave(e) { e.currentTarget.style.borderTop = ''; }
+        function handleDrop(e) {
+            e.preventDefault(); e.currentTarget.style.borderTop = '';
+            let targetIndexStr = e.currentTarget.getAttribute('data-index');
+            let targetIndex = targetIndexStr ? parseInt(targetIndexStr) : 0;
+            if (dragSourceIndex !== null && dragSourceIndex !== targetIndex) {
+                const draggedItem = playQueue.splice(dragSourceIndex, 1)[0];
+                playQueue.splice(targetIndex, 0, draggedItem);
+            }
+            renderQueue(); 
+        }
+        function handleDragEnd(e) { renderQueue(); }
+
+        function renderQueue() {
+            const queueContainer = document.getElementById('queue-list');
+            const nowPlayingBox = document.getElementById('now-playing-content');
+            
+            document.getElementById('queue-count').innerText = '🎵 ' + (playQueue.length + (currentSongInfo ? 1 : 0));
+            
+            let totalSeconds = 0;
+            if (currentSongInfo) totalSeconds += (currentSongInfo.duration || 210);
+            playQueue.forEach(song => { totalSeconds += (song.duration || 210); });
+            
+            let h = Math.floor(totalSeconds / 3600); let m = Math.floor((totalSeconds % 3600) / 60); let s = totalSeconds % 60;
+            document.getElementById('queue-time').innerText = `⏱️ ${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
+
+            if (currentSongInfo) {
+                nowPlayingBox.innerHTML = `
+                <div class="q-item playing" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+                    <div class="eq-block"><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div></div>
+                    <img src="https://i.ytimg.com/vi/${currentSongInfo.id}/default.jpg">
+                    <div class="track-info">
+                        <div class="track-title" style="color: var(--gold)">${currentSongInfo.title}</div>
+                        <div class="track-meta">
+                            ${currentSongInfo.user !== 'Auto' ? `<span class="badge ${currentSongInfo.user === 'Streamer' ? 'badge-manual' : 'badge-user'}">${currentSongInfo.user}</span>` : `<span class="badge badge-auto">🤖 Auto</span>`}
+                            <span class="badge badge-time">⏱️ ${formatTime(currentSongInfo.duration)}</span>
+                            <span class="badge badge-author">🎤 ${currentSongInfo.author}</span>
+                        </div>
+                    </div>
+                    <button class="btn-ban" onclick="banCurrentSong()" title="Ban" style="right: 15px;">🔨</button>
+                </div>`;
+            } else nowPlayingBox.innerHTML = `<div style="text-align:center; color:#555; font-size: 0.8em; padding: 10px;">${t('ui_no_song')}</div>`;
+
+            if (playQueue.length === 0) { queueContainer.innerHTML = `<div style="text-align:center; color:#888; margin-top: 20px;">---</div>`; return; }
+            
+            queueContainer.innerHTML = playQueue.slice(0, 40).map((song, i) => {
+                let typeClass = ""; let badgeClass = "badge";
+                if (song.user !== "Auto") {
+                    if (song.user === "Streamer") { typeClass = "manual"; badgeClass = "badge badge-manual"; } 
+                    else { typeClass = "request"; badgeClass = "badge badge-user"; }
+                }
+                if (i === 0) typeClass += " next";
+                let animClass = song.isNew ? "animate-in" : "";
+                if (song.isNew) setTimeout(() => { song.isNew = false; }, 500); 
+
+                return `
+                <div class="q-item ${typeClass} ${animClass}" draggable="true" data-index="${i}" ondragstart="handleDragStart(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" ondragend="handleDragEnd(event)">
+                    <div class="track-num">${i + 2}.</div>
+                    <img src="https://i.ytimg.com/vi/${song.id}/default.jpg">
+                    <div class="track-info">
+                        <div class="track-title">${song.title}</div>
+                        <div class="track-meta">
+                            ${song.user !== 'Auto' ? `<span class="${badgeClass}">👤 ${song.user}</span>` : `<span class="badge badge-auto">🤖 Auto</span>`}
+                            <span class="badge badge-time">⏱️ ${formatTime(song.duration)}</span>
+                            <span class="badge badge-author">🎤 ${song.author}</span>
+                        </div>
+                    </div>
+                    <button class="btn-ban" onclick="banSong(${i})" title="Ban">🔨</button>
+                    <button class="btn-remove" onclick="removeSongFromUI(${i})" title="Remove">❌</button>
+                </div>`;
+            }).join('');
+        }
+
+        function renderBaseList() {
+            const container = document.getElementById('base-list');
+            const searchInput = document.getElementById('base-search');
+            const query = searchInput ? searchInput.value.toLowerCase().trim() : "";
+
+            let filteredList = masterList;
+            
+            if (query !== "") {
+                filteredList = masterList.filter(id => {
+                    let info = titleCache[id];
+                    if(!info) return false;
+                    let searchStr = (info.title + " " + info.author).toLowerCase();
+                    return searchStr.includes(query);
+                });
+            }
+
+            if (filteredList.length === 0 && masterList.length > 0) {
+                container.innerHTML = `<div style="text-align:center; padding: 20px; color: #888;">0 results</div>`;
+                return;
+            }
+
+            container.innerHTML = filteredList.map((id) => {
+                let info = titleCache[id];
+                let originalIndex = masterList.indexOf(id) + 1; 
+                
+                return `
+                <div class="q-item compact">
+                    <div class="track-num" title="Base ID">${originalIndex}.</div>
+                    <img src="https://i.ytimg.com/vi/${id}/default.jpg">
+                    <div class="track-info">
+                        <div class="track-title" title="${info.title}">${info.title}</div>
+                        <div class="track-meta">
+                            <span class="badge badge-time">⏱️ ${formatTime(info.duration)}</span>
+                            <span class="badge badge-author">🎤 ${info.author}</span>
+                        </div>
+                    </div>
+                    <button class="btn-add" onclick="fetchAndAddById('${id}', 'Streamer')" title="Add">+</button>
+                </div>`;
+            }).join('');
+        }
+
+        function connectWebsocket() {
+            ws = new WebSocket(`ws://localhost:${WS_PORT}/`);
+            ws.onopen = () => { 
+                document.getElementById('status').innerText = t('ui_bot_connected');
+                document.getElementById('status').style.color = "#00ff88";
+                ws.send(JSON.stringify({"request": "Subscribe", "events": {"General": ["Custom"]}, "id": "Sub"}));
+            };
+            ws.onmessage = (e) => {
+                const rawData = e.data.toString();
+                if (rawData.includes('"request":"Hello"') || rawData.includes('"id":"Sub"')) return;
+                try {
+                    let inner = null;
+                    const raw = JSON.parse(rawData);
+                    if (raw.data && typeof raw.data === 'object' && raw.data.data) inner = JSON.parse(raw.data.data);
+                    else if (raw.type) inner = raw;
+
+                    if (inner) {
+                        if (inner.type === "SONG_REQUEST") {
+                            if (!isSrEnabled) sendChatMessage(t('msg_sr_disabled', {user: inner.user}));
+                            else if (bannedSongs.some(b => b.id === inner.id)) sendChatMessage(t('msg_sr_banned', {user: inner.user}));
+                            else {
+                                let isDuplicate = playQueue.some(song => song.id === inner.id && song.user !== "Auto" && song.user !== "Streamer");
+                                let isCurrentDuplicate = currentSongInfo && currentSongInfo.id === inner.id && currentSongInfo.user !== "Auto" && currentSongInfo.user !== "Streamer";
+                                if (isDuplicate || isCurrentDuplicate) sendChatMessage(t('msg_sr_dupe', {user: inner.user}));
+                                else addSongFromChat(inner);
+                            }
+                        }
+                        else if (inner.type === "SONG_REQUEST_FORCE") addSongFromChat(inner, true); 
+                        else if (inner.type === "GET_SONG") handleGetSong(inner.user);
+                        else if (inner.type === "SKIP_SONG") handleSkipSong(inner.user);
+                        else if (inner.type === "WRONG_SONG") handleWrongSong(inner.user);
+                        else if (inner.type === "VOLUME") handleVolume(inner);
+                        
+                        else if (inner.type === "PLAY_SONG") playFromChat(inner.user);
+                        else if (inner.type === "PAUSE_SONG") pauseFromChat(inner.user);
+                        else if (inner.type === "STOP_SONG") stopFromChat(inner.user);
+
+                        else if (inner.type === "SR_ERROR") {
+                            let msg = `❌ @${inner.user}, `;
+                            switch(inner.errorCode) {
+                                case "EMPTY_INPUT": msg += t('msg_err_empty'); break;
+                                case "NOT_FOUND": msg += t('msg_err_not_found', {info: inner.extraInfo}); break;
+                                case "TOO_LONG": msg += t('msg_err_long', {info: Math.floor(parseInt(inner.extraInfo)/60)}); break;
+                                case "NOT_MUSIC": msg += t('msg_err_cat', {info: inner.extraInfo}); break;
+                                case "API_ERROR": msg += t('msg_err_api'); break;
+                            }
+                            sendChatMessage(msg);
+                        }
+                        else if (inner.type === "SR_SEARCHING") {
+                            sendChatMessage(t('msg_searching', {user: inner.user}));
+                        }
+                        else if (inner.type === "SR_FORCE_ERROR") {
+                            if(inner.errorCode === "INVALID_ID") sendChatMessage(t('msg_err_id', {user: inner.user}));
+                            else sendChatMessage(t('msg_err_yt_read', {user: inner.user}));
+                        }
+                    }
+                } catch(err) {}
+            };
+            ws.onclose = () => { 
+                document.getElementById('status').innerText = t('ui_bot_disconnected');
+                document.getElementById('status').style.color = "var(--red)";
+                wsReconnectTimeout = setTimeout(connectWebsocket, 5000); 
+            };
+        }
+    </script>
+</body>
+</html>
