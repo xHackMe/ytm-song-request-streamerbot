@@ -563,20 +563,28 @@
         
         async function checkGithubUpdates() {
             try {
-                // Fetching the list of releases
-                let res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases`);
+                // Dodajemy 'no-store', aby wymusić pobranie zawsze świeżych danych (ominięcie cache przeglądarki)
+                let res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases`, {
+                    cache: 'no-store',
+                    headers: { 'Accept': 'application/vnd.github.v3+json' }
+                });
+                
                 if (!res.ok) return;
                 let releases = await res.json();
                 
                 if (releases && releases.length > 0) {
-                    // The latest release on GitHub
                     let latest = releases[0];
                     
-                    // 1. Update button logic
-                    if (latest.tag_name !== CURRENT_VERSION) {
+                    // Bezpieczne porównywanie wersji (usuwamy spacje, zmieniamy na małe litery i usuwamy "v" z przodu)
+                    let cleanLocalVer = CURRENT_VERSION.trim().toLowerCase().replace(/^v/, '');
+                    let cleanGithubVer = latest.tag_name.trim().toLowerCase().replace(/^v/, '');
+                    
+                    console.log(`[Update Check] Local: ${cleanLocalVer} | GitHub: ${cleanGithubVer}`);
+
+                    // 1. Logika przycisku aktualizacji
+                    if (cleanLocalVer !== cleanGithubVer) {
                         const updateBtn = document.getElementById('update-btn');
                         updateBtn.style.display = 'block';
-                        // SAVE VERSION FOR TRANSLATOR:
                         updateBtn.setAttribute('data-version', latest.tag_name); 
                         updateBtn.innerText = t('ui_update_btn', {version: latest.tag_name});
                         updateBtn.onclick = () => window.open(latest.html_url, '_blank');
@@ -584,13 +592,16 @@
                         document.getElementById('update-btn').style.display = 'none';
                     }
 
-                    // 2. Rendering the changelog list
+                    // 2. Renderowanie listy zmian
                     const clContent = document.getElementById('changelog-content');
                     clContent.innerHTML = '';
                     
                     releases.forEach(rel => {
                         let date = new Date(rel.published_at).toLocaleDateString();
-                        let isCurrent = (rel.tag_name === CURRENT_VERSION) 
+                        
+                        // Bezpieczne porównywanie dla każdego wpisu na liście
+                        let cleanRelVer = rel.tag_name.trim().toLowerCase().replace(/^v/, '');
+                        let isCurrent = (cleanRelVer === cleanLocalVer) 
                             ? '<span style="color:#00ff88; font-size:0.7em; margin-left:10px;">(Your Version)</span>' 
                             : '';
                         
