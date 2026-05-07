@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>YTM Song Request 1.0.0a</title>
+    <title>YTM Song Request</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     
     <style>
@@ -81,9 +81,10 @@
         .btn-ban { position: absolute; right: 35px; top: 15px; background: transparent; color: #666; border: none; cursor: pointer; font-size: 1.1em; padding: 5px; transition: 0.2s; border-radius: 4px; }
         .btn-ban:hover { color: var(--gold); background: rgba(255, 204, 0, 0.15); transform: scale(1.1); }
 
-        .config-panel { width: 90%; max-width: 800px; background: #15151a; border: 1px solid #333; border-radius: 12px; padding: 15px 25px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5); box-sizing: border-box; flex-wrap: wrap; gap: 15px;}
-        .config-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-        .config-label { font-size: 0.75em; color: #888; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        .config-panel { width: 90%; max-width: 800px; background: #15151a; border: 1px solid #333; border-radius: 12px; padding: 15px 25px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5); box-sizing: border-box; }
+        .config-left { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+        .config-center { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .config-right { display: flex; justify-content: flex-end; }
         
         .btn-config { background: #222; border: 1px solid #444; color: var(--text); padding: 8px 15px; border-radius: 6px; cursor: pointer; font-size: 0.9em; font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
         .btn-config:hover { background: #333; border-color: var(--accent); color: #fff; transform: translateY(-2px); }
@@ -95,13 +96,6 @@
         .slider-large:before { position: absolute; content: ""; height: 22px; width: 22px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.5);}
         .switch-large input:checked + .slider-large { background-color: #00ff88; box-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
         .switch-large input:checked + .slider-large:before { transform: translateX(30px); }
-
-        .ws-input-box { display: flex; align-items: center; background: #0b0b0d; border: 1px solid #444; border-radius: 6px; overflow: hidden; }
-        .ws-input-box input { background: transparent; border: none; color: #fff; padding: 6px 10px; width: 60px; text-align: center; font-family: monospace; outline: none; }
-        .ws-input-box button { background: var(--manual); color: #fff; border: none; padding: 6px 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-        .ws-input-box button:hover { background: #fff; color: #000; }
-        
-        #status { font-size: 0.85em; font-weight: bold; text-align: center; margin-top: 5px; text-shadow: 0 0 5px rgba(0,0,0,0.5); letter-spacing: 0.5px;}
 
         .player-wrapper { width: 90%; max-width: 800px; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
         
@@ -123,9 +117,9 @@
         #now-playing-title { margin-top: 20px; font-size: 1.5em; font-weight: 900; color: var(--gold); text-align: center; text-shadow: 0 0 10px rgba(255, 204, 0, 0.3); padding: 0 20px;}
         #now-playing-meta { font-size: 1em; color: #aaa; margin-top: 5px; }
 
-        /* MODALE */
+        /* MODALS */
         .modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; }
-        .modal-content { background:var(--panel); width:90%; max-width:600px; max-height:80vh; border: 1px solid #444; border-radius:10px; display:flex; flex-direction:column; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        .modal-content { background:var(--panel); width:90%; max-width:600px; max-height:85vh; border: 1px solid #444; border-radius:10px; display:flex; flex-direction:column; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
         .modal-header { padding:15px; background:#222; border-bottom:1px solid #444; display:flex; justify-content:space-between; align-items:center; border-radius: 10px 10px 0 0; }
         .modal-item { display:flex; justify-content:space-between; align-items:center; background:#25252b; padding:10px 15px; margin-bottom:8px; border-radius:6px; border-left: 4px solid var(--red); }
         .modal-item.playlist-style { border-left-color: var(--accent); }
@@ -135,12 +129,36 @@
         .btn-modal-action.danger { background: var(--red); color: white; }
         .btn-modal-action.danger:hover { background: #ff7777; }
 
-        .api-setup-box { padding: 20px; background: #0b0b0d; margin: 15px; border-radius: 8px; border: 1px solid #333; }
-        .api-input { width: 100%; background: #1a1a1f; border: 1px solid var(--gold); color: white; padding: 12px; border-radius: 6px; box-sizing: border-box; font-family: monospace; font-size: 1.1em; margin-top: 10px; outline: none; }
-        .api-input:focus { box-shadow: 0 0 10px rgba(255, 204, 0, 0.3); }
+        .api-input { width: 100%; background: #1a1a1f; border: 1px solid #444; color: white; padding: 10px; border-radius: 6px; box-sizing: border-box; font-family: monospace; font-size: 1em; margin-top: 5px; outline: none; }
+        .api-input:focus { box-shadow: 0 0 10px rgba(0, 212, 255, 0.3); border-color: var(--accent); }
 
         .btn-clear-bans { background: var(--red); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; transition: 0.2s;}
         .btn-clear-bans:hover { background: #ff7777; transform: scale(1.05); }
+
+        /* SETTINGS MODAL */
+        #settings-modal .modal-content { max-width: 700px; height: 80vh; }
+        .settings-tabs { display: flex; background: #15151a; border-bottom: 2px solid #333; }
+        .settings-tab { flex: 1; padding: 15px; text-align: center; cursor: pointer; font-weight: bold; color: #888; transition: 0.2s; border-bottom: 2px solid transparent; }
+        .settings-tab:hover { color: #fff; background: #1a1a1f; }
+        .settings-tab.active { color: var(--accent); border-bottom-color: var(--accent); background: #222; }
+        .settings-body { flex-grow: 1; overflow-y: auto; padding: 20px; }
+        .settings-section { display: none; }
+        .settings-section.active { display: block; }
+        
+        .settings-row { display: flex; flex-direction: column; margin-bottom: 15px; background: #111; padding: 15px; border-radius: 8px; border: 1px solid #333; }
+        .settings-row label { font-weight: bold; margin-bottom: 5px; color: var(--gold); font-size: 0.9em; }
+        
+        .msg-setting-item { margin-bottom: 12px; background: #15151a; padding: 10px; border-radius: 6px; border-left: 3px solid var(--twitch); }
+        .msg-setting-header { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.8em; }
+        .msg-key { color: var(--accent); font-family: monospace; font-weight: bold; }
+        .msg-vars { color: #888; font-family: monospace; }
+        .msg-setting-body { display: flex; gap: 5px; }
+        .msg-setting-body input { flex-grow: 1; background: #0b0b0d; color: #fff; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; outline: none; }
+        .msg-setting-body input:focus { border-color: var(--accent); }
+        .btn-msg-action { background: #333; border: none; color: white; padding: 0 12px; border-radius: 4px; cursor: pointer; font-size: 1.1em; transition: 0.2s; }
+        .btn-msg-action:hover { background: var(--accent); color: black; }
+        .btn-msg-reset { background: #333; }
+        .btn-msg-reset:hover { background: var(--red); }
 
         /* TUTORIAL MODAL */
         #tutorial-modal .modal-content { max-width: 800px; }
@@ -151,45 +169,39 @@
         .tut-input[type="text"] { width: 120px; text-align: left; color: #00ff88; }
         .tut-input:focus { border-color: var(--accent); }
 
-        .tut-code { 
-            background: #050505; color: #00ff88; font-family: monospace; padding: 10px; border-radius: 6px; 
-            font-size: 11px; word-break: break-all; max-height: 100px; overflow-y: auto; border: 1px solid #333; 
-            margin-bottom: 10px; width: 100%; box-sizing: border-box; resize: vertical;
-        }
-        
+        .tut-code { background: #050505; color: #00ff88; font-family: monospace; padding: 10px; border-radius: 6px; font-size: 11px; word-break: break-all; max-height: 100px; overflow-y: auto; border: 1px solid #333; margin-bottom: 10px; width: 100%; box-sizing: border-box; resize: vertical; }
         .btn-copy { background: #333; color: white; border: 1px solid #555; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s;}
         .btn-copy:hover { background: #00ff88; color: black; border-color: #00ff88;}
 
-        /* NOWY STYL DLA PRZYCISKU ZAMKNIĘCIA TUTORIALA (PULSACJA) */
         @keyframes pulse-btn-anim {
             0% { transform: scale(1); box-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
             50% { transform: scale(1.05); box-shadow: 0 0 25px rgba(0, 255, 136, 0.8); }
             100% { transform: scale(1); box-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
         }
-        .btn-pulse {
-            animation: pulse-btn-anim 2s infinite;
-            background: #00ff88 !important;
-            color: #000 !important;
-            font-size: 1.1em !important;
-            padding: 15px 40px !important;
-            border: 2px solid #fff !important;
-        }
+        .btn-pulse { animation: pulse-btn-anim 2s infinite; background: #00ff88 !important; color: #000 !important; font-size: 1.1em !important; padding: 15px 40px !important; border: 2px solid #fff !important; }
 
-        /* PRZYCISKI W PRAWYM DOLNYM ROGU */
+        /* BOTTOM RIGHT BUTTONS */
         .floating-btns { position: fixed; bottom: 50px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 1000; transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .btn-help, .btn-changelog { background: var(--manual); color: white; border: 2px solid #fff; border-radius: 50px; padding: 10px 20px; font-weight: 900; font-size: 14px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: 0.2s; text-align: center;}
         .btn-help:hover { background: var(--gold); color: black; transform: scale(1.1); }
         .btn-changelog { background: #222; border-color: var(--accent); color: var(--accent); }
         .btn-changelog:hover { background: var(--accent); color: black; transform: scale(1.1); }
+        
+        .btn-update { background: var(--red); color: white; border: 2px solid #fff; border-radius: 50px; padding: 10px 20px; font-weight: 900; font-size: 14px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-align: center; animation: pulse-update 1.5s infinite; transition: 0.2s;}
+        .btn-update:hover { background: #fff; color: var(--red); transform: scale(1.05); }
+        @keyframes pulse-update { 0% { transform: scale(1); box-shadow: 0 0 10px rgba(255, 77, 77, 0.4); } 50% { transform: scale(1.05); box-shadow: 0 0 25px rgba(255, 77, 77, 0.8); } 100% { transform: scale(1); box-shadow: 0 0 10px rgba(255, 77, 77, 0.4); } }
 
         .bottom-zone { flex-shrink: 0; width: 100%; background: #070709; z-index: 2000; }
         
-        .footer { border-top: 1px solid #222; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; height: 35px; box-sizing: border-box; }
-        .footer-left { display: flex; align-items: center; gap: 20px; font-size: 11px; color: #666; font-weight: bold; }
-        .footer-left a { color: #888; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
-        .footer-left a:hover { color: var(--accent); transform: scale(1.05); }
-        .footer-left img { height: 16px; width: 16px; object-fit: contain; }
-        .footer-left img.round { border-radius: 50%; }
+        /* NEW FOOTER */
+        .footer { border-top: 1px solid #222; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; height: 35px; box-sizing: border-box; position: relative;}
+        .footer-left { font-size: 11px; color: #666; font-weight: bold; width: 250px; display: flex; align-items: center;}
+        .footer-center { display: flex; align-items: center; gap: 20px; font-size: 11px; color: #666; font-weight: bold; position: absolute; left: 50%; transform: translateX(-50%);}
+        .footer-center a { color: #888; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
+        .footer-center a:hover { color: var(--accent); transform: scale(1.05); }
+        .footer-center img { height: 16px; width: 16px; object-fit: contain; }
+        .footer-center img.round { border-radius: 50%; }
+        .footer-right { width: 250px; display: flex; justify-content: flex-end; }
         .separator { color: #333; }
 
         .btn-debug-toggle { background: #1a1a1f; color: #888; border: 1px solid #444; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: bold; transition: 0.2s; display: flex; align-items: center;}
@@ -204,20 +216,23 @@
             .panel-left { width: 100%; height: 50vh; min-height: 400px; border-right: none; border-bottom: 2px solid #333; }
             .main { width: 100%; min-height: unset; padding: 20px 0; }
             .panel-right { width: 100%; height: 70vh; min-height: 500px; border-left: none; border-top: 2px solid #333; }
-            .config-panel { flex-direction: column; gap: 20px; }
+            .config-panel { display: flex; flex-direction: column; gap: 15px; text-align: center; }
+            .config-left { align-items: center; }
+            .config-right { justify-content: center; }
             .bottom-zone { position: fixed; bottom: 0; left: 0; box-shadow: 0 -5px 15px rgba(0,0,0,0.5); }
         }
         
-        /* CHANGELOG LIST */
+        /* CHANGELOG BADGES */
         .changelog-entry { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #333; }
         .changelog-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0;}
         .cl-version { color: var(--gold); font-size: 1.2em; margin: 0 0 10px 0; display: flex; align-items: center; justify-content: space-between;}
         .cl-date { font-size: 0.7em; color: #888; font-family: monospace; }
-        .cl-list { margin: 0; padding-left: 20px; color: #ccc; line-height: 1.6; font-size: 0.95em;}
-        .cl-list li { margin-bottom: 6px; }
-        .cl-tag { background: rgba(0, 212, 255, 0.15); color: var(--accent); padding: 2px 6px; border-radius: 4px; font-size: 0.8em; font-weight: bold; margin-right: 8px;}
-        .cl-tag.fix { background: rgba(255, 77, 77, 0.15); color: var(--red); }
-        .cl-tag.new { background: rgba(0, 255, 136, 0.15); color: #00ff88; }
+        .cl-body { color: #ccc; font-size: 0.9em; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;}
+        
+        .cl-badge { padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: 900; margin-right: 8px; vertical-align: text-bottom; display: inline-block; letter-spacing: 0.5px;}
+        .cl-new { background: rgba(0, 255, 136, 0.15); color: #00ff88; border: 1px solid #00ff88; }
+        .cl-fix { background: rgba(255, 77, 77, 0.15); color: #ff4d4d; border: 1px solid #ff4d4d; }
+        .cl-chg { background: rgba(0, 212, 255, 0.15); color: #00d4ff; border: 1px solid #00d4ff; }
         
         .lang-select { background: #222; color: #fff; border: 1px solid #444; padding: 6px 10px; border-radius: 4px; cursor: pointer; outline: none; font-weight: bold; }
         .lang-select:hover { border-color: var(--accent); }
@@ -226,11 +241,14 @@
 <body>
 
     <div class="top-section" id="app-top-section">
-        <!-- LEWA KOLUMNA -->
         <div class="panel panel-left">
             <div class="header">
-                <span data-i18n="ui_base_playlists">BASE PLAYLISTS</span>
-                <span id="base-count" class="list-count">🎵 0</span>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span data-i18n="ui_base_playlists">BASE PLAYLISTS</span>
+                    <span id="base-count" class="list-count">🎵 0</span>
+                </div>
+                <!-- Przycisk zmodyfikowany: tekst wspierający i18n, ikona oraz ostylowanie -->
+                <button onclick="openPlaylistManager()" style="background: #222; border: 1px solid #444; color: var(--gold); padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 5px;" onmouseover="this.style.background='#333'; this.style.borderColor='var(--accent)';" onmouseout="this.style.background='#222'; this.style.borderColor='#444';" data-i18n="ui_manage_playlists">📁 Manage Playlists</button>
             </div>
             <button id="btn-run" class="btn-start" onclick="startSystem()" disabled data-i18n="ui_btn_downloading">⏳ DOWNLOADING DATABASE...</button>
             
@@ -241,49 +259,23 @@
             <div class="list-container" id="base-list"></div>
         </div>
 
-        <!-- ŚRODKOWA KOLUMNA -->
         <div class="main">
             <div class="config-panel">
-                <div class="config-group">
-                    <span class="config-label" data-i18n="ui_language">Language</span>
-                    <select id="lang-select" class="lang-select" onchange="changeLanguage(this.value)">
-                        <option value="en">English</option>
-                        <option value="pl">Polski</option>
-                        <option value="de">Deutsch</option>
-                        <option value="fr">Français</option>
-                        <option value="tr">Türkçe</option>
-                    </select>
+                <div class="config-left">
+                    <div id="status" style="color: #ffaa00; font-size: 11px; font-weight: bold; background: #111; padding: 4px 12px; border-radius: 12px; border: 1px solid #333;" data-i18n="ui_bot_connecting">🔴 Connecting to Bot...</div>
+                    <div id="api-status-ui" style="color: #aaa; font-size: 11px; font-weight: bold; background: #111; padding: 4px 12px; border-radius: 12px; border: 1px solid #333;" data-i18n="ui_api_unknown">⚪ API Status Unknown</div>
                 </div>
 
-                <div class="config-group">
+                <div class="config-center">
                     <label class="switch-large" data-i18n-title="ui_sr_toggle_title" title="Enable or disable viewer requests">
                         <input type="checkbox" id="sr-toggle-cb" onchange="toggleSR()">
                         <span class="slider-large"></span>
                     </label>
-                    <span id="sr-status-text" style="font-weight: 900; font-size: 14px; color: var(--red); text-shadow: 0 0 5px rgba(0,0,0,0.5);">!SR OFF</span>
+                    <span id="sr-status-text" style="font-weight: 900; font-size: 18px; color: var(--red); text-shadow: 0 0 5px rgba(0,0,0,0.5); letter-spacing: 1px;">!SR OFF</span>
                 </div>
-
-                <div class="config-group">
-                    <span class="config-label" data-i18n="ui_ws_port">WebSocket Port</span>
-                    <div class="ws-input-box">
-                        <input type="password" id="ws-port-input" value="8080" maxlength="5">
-                        <button onclick="saveWsPort()" data-i18n-title="ui_save_reconnect" title="Save and reconnect">💾</button>
-                    </div>
-                    <div id="status" style="color: #ffaa00;" data-i18n="ui_bot_connecting">🔴 Connecting to Bot...</div>
-                </div>
-
-                <div class="config-group">
-                    <span class="config-label" data-i18n="ui_track_base">Track Base</span>
-                    <button class="btn-config highlight" onclick="openPlaylistManager()">
-                        <span data-i18n="ui_manage_playlists">📁 Manage Playlists</span>
-                    </button>
-                </div>
-
-                <div class="config-group">
-                    <span class="config-label">Google API</span>
-                    <button class="btn-config" onclick="openApiSetup()">
-                        <span id="api-status-icon" style="font-size: 14px;">⚪</span> <span data-i18n="ui_api_setup">API Setup</span>
-                    </button>
+                
+                <div class="config-right">
+                    <button class="btn-config highlight" onclick="openSettings()" style="font-size: 1.8em; padding: 5px 15px; border-radius: 10px;">⚙️</button>
                 </div>
             </div>
             
@@ -307,7 +299,6 @@
             </div>
         </div>
 
-        <!-- PRAWA KOLUMNA -->
         <div class="panel panel-right">
             <div class="header">
                 <div style="display: flex; gap: 10px; align-items: center;">
@@ -331,10 +322,12 @@
         </div>
     </div>
 
-    <!-- DOLNA STREFA: STOPKA + LOGI -->
     <div class="bottom-zone">
         <div class="footer">
             <div class="footer-left">
+                YTM Song Request <span id="app-version-display" style="color:var(--accent); margin-left:5px;"></span>
+            </div>
+            <div class="footer-center">
                 <a href="https://twitch.tv/HackMe_" target="_blank">
                     <img src="https://static-cdn.jtvnw.net/jtv_user_pictures/34518793-9a28-4e44-bf46-2e455c035873-profile_image-70x70.png" class="round" alt="HackMe_ Avatar">
                     Designed by HackMe_
@@ -345,64 +338,109 @@
                     Powered by Streamer.bot
                 </a>
             </div>
-            <button class="btn-debug-toggle" onclick="toggleDebug()" data-i18n="ui_sys_logs">🔧 SYSTEM LOGS</button>
+            <div class="footer-right">
+                <button class="btn-debug-toggle" onclick="toggleDebug()" data-i18n="ui_sys_logs">🔧 SYSTEM LOGS</button>
+            </div>
         </div>
 
         <div id="debug-console">
-            <div id="log-content">=== YTM Song Request 1.0.0a ===</div>
+            <div id="log-content"></div>
         </div>
     </div>
 
-    <!-- PŁYWAJĄCE PRZYCISKI -->
     <div class="floating-btns" id="floating-btns">
+        <button id="update-btn" class="btn-update" style="display:none;"></button>
         <button class="btn-changelog" onclick="openChangelog()" data-i18n="ui_changelog_btn">📜 CHANGELOG</button>
         <button class="btn-help" onclick="openTutorial()" data-i18n="ui_help_btn">❓ HELP</button>
     </div>
 
-    <!-- MODAL CHANGELOG -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; color:var(--accent);" data-i18n="ui_settings">⚙️ Settings</h3>
+                <button onclick="closeSettings()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+            </div>
+            
+            <div class="settings-tabs">
+                <div class="settings-tab active" onclick="switchSettingsTab('general')" id="tab-btn-general" data-i18n="ui_general">General</div>
+                <div class="settings-tab" onclick="switchSettingsTab('messages')" id="tab-btn-messages" data-i18n="ui_chat_msgs">Chat Messages</div>
+            </div>
+
+            <div class="settings-body">
+                <div id="tab-content-general" class="settings-section active">
+                    
+                    <div class="settings-row">
+                        <label data-i18n="ui_language">Language</label>
+                        <select id="lang-select" class="lang-select" onchange="changeLanguage(this.value)" style="width: 200px;">
+                            <option value="en">English</option>
+                            <option value="pl">Polski</option>
+                            <option value="de">Deutsch</option>
+                            <option value="fr">Français</option>
+                            <option value="tr">Türkçe</option>
+                        </select>
+                    </div>
+
+                    <div class="settings-row">
+                        <label>WebSocket Server (Streamer.bot)</label>
+                        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <span style="font-size: 0.8em; color: #888;" data-i18n="ui_ws_port">Port</span>
+                                <input type="number" id="ws-port-input" class="api-input" value="8080" style="width: 100px; margin: 0; text-align: center;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1;">
+                                <span style="font-size: 0.8em; color: #888;" data-i18n="ui_ws_pass">Password (optional)</span>
+                                <input type="password" id="ws-pass-input" class="api-input" placeholder="********" style="margin: 0;">
+                            </div>
+                            <button onclick="saveWsConfig()" style="background: var(--manual); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; height: 38px;" data-i18n="ui_save_reconnect">Save & Reconnect</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-row">
+                        <label style="color: var(--gold);" data-i18n="ui_api_title">🔑 Google API Key Setup</label>
+                        <div style="font-size: 0.8em; color: #aaa; margin-bottom: 10px;" data-i18n="ui_api_safe">Your API key is saved locally in your browser.</div>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="password" id="api-key-input" class="api-input" placeholder="AIzaSy..." style="margin:0; flex-grow:1;">
+                            <button onclick="toggleApiVisibility()" id="btn-show-api" style="background: #222; color: #fff; border: 1px solid #444; padding: 0 15px; border-radius: 4px; cursor: pointer;" data-i18n="ui_api_show">👁 SHOW</button>
+                            <button onclick="saveApiKey()" style="background: var(--gold); color: black; border: none; padding: 0 20px; border-radius: 4px; font-weight: bold; cursor: pointer;" data-i18n="ui_api_save">💾 SAVE</button>
+                        </div>
+                        <span id="api-status-icon" data-last-status="init" style="font-size: 14px; margin-top: 5px;">⚪ Status</span>
+                        
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333; font-size: 0.85em; color: #ccc;">
+                            <strong data-i18n="ui_api_howto_title">Where to get a free API key?</strong>
+                            <ol style="margin: 5px 0 0 0; padding-left: 20px; color: var(--accent);">
+                                <li style="color: #bbb;" data-i18n="ui_api_howto_1">Log in to <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none;'>Google Cloud Console</a>.</li>
+                                <li style="color: #bbb;" data-i18n="ui_api_howto_2">Create a new project.</li>
+                                <li style="color: #bbb;" data-i18n="ui_api_howto_3">Go to 'APIs & Services' -> 'Library'.</li>
+                                <li style="color: #bbb;" data-i18n="ui_api_howto_4">Enable 'YouTube Data API v3'.</li>
+                                <li style="color: #bbb;" data-i18n="ui_api_howto_5">Go to 'Credentials' -> 'Create credentials' -> 'API key'.</li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-content-messages" class="settings-section">
+                    <div style="background: rgba(0, 212, 255, 0.1); border-left: 4px solid var(--accent); padding: 12px; border-radius: 4px; font-size: 0.85em; color: #ccc; margin-bottom: 15px;" data-i18n="ui_chat_msgs_desc">
+                        Here you can edit the text of the messages the bot sends to your chat. Max length is 500 chars. Use variables like {user} where applicable. Messages are saved per language.
+                    </div>
+                    <div id="msg-settings-list"></div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
     <div id="changelog-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 style="margin:0; color:var(--accent);">📜 Changelog</h3>
                 <button onclick="closeChangelog()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
             </div>
-            <div style="padding: 20px; overflow-y:auto; flex-grow:1; max-height: 70vh;">
-                
-                <div class="changelog-entry">
-                    <h4 class="cl-version">v1.0.0a <span class="cl-date">06.05.2026</span></h4>
-                    <ul class="cl-list">
-                        <li><span class="cl-tag new">NEW</span> GitHub implementation and final project structuring.</li>
-                        <li><span class="cl-tag fix">FIX</span> Fixed a visual bug where changing the language displayed a false "Connecting" status for the WebSocket. The connection now automatically refreshes upon language change.</li>
-                    </ul>
-                </div>
-
-                <div class="changelog-entry">
-                    <h4 class="cl-version">v1.0.0 <span class="cl-date">06.05.2026</span></h4>
-                    <ul class="cl-list">
-                        <li><span class="cl-tag new">NEW</span> <strong>Multi-language System (i18n)</strong>. The app now fully supports English, Polish, German, French, and Turkish. Language preferences are saved locally.</li>
-                        <li><span class="cl-tag new">NEW</span> Chat messages from the bot are now translated instantly based on the selected language without restarting.</li>
-                        <li><span class="cl-tag new">NEW</span> Dynamic tutorial instructions! The final step now recognizes if you are opening the file locally (`file://`) or through the Streamer.bot server (`http://localhost`) and adapts the message accordingly.</li>
-                        <li><span class="cl-tag new">NEW</span> Added an important reminder for users to keep port settings in sync.</li>
-                    </ul>
-                </div>
-
-                <div class="changelog-entry">
-                    <h4 class="cl-version">v0.9.0 <span class="cl-date">06.05.2026</span></h4>
-                    <ul class="cl-list">
-                        <li><span class="cl-tag new">NEW</span> <strong>First official release</strong>. Project renamed to <em>YTM Song Request</em>.</li>
-                        <li><span class="cl-tag new">NEW</span> Added real-time search for base tracks with quick add buttons.</li>
-                        <li><span class="cl-tag new">NEW</span> Built-in Changelog modal.</li>
-                        <li><span class="cl-tag fix">CHANGE</span> Split Streamer.bot !play action into separate, safer commands.</li>
-                        <li><span class="cl-tag fix">FIX</span> Command !skip now sends the exact track info.</li>
-                        <li><span class="cl-tag fix">FIX</span> UI optimization.</li>
-                    </ul>
-                </div>
-
+            <div id="changelog-content" style="padding: 20px; overflow-y:auto; flex-grow:1; max-height: 70vh;">
+                <div style="text-align:center; padding: 20px; color: var(--gold);">Loading from GitHub...</div>
             </div>
         </div>
     </div>
 
-    <!-- MODAL LISTY BANÓW -->
     <div id="ban-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
@@ -416,11 +454,13 @@
         </div>
     </div>
 
-    <!-- MODAL LISTY PLAYLIST -->
     <div id="playlist-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 style="margin:0; color:var(--accent);" data-i18n="ui_manage_playlists">📁 Manage Playlists</h3>
+                <div style="display: flex; flex-direction: column;">
+                    <h3 style="margin:0; color:var(--accent);" data-i18n="ui_manage_playlists">📁 Manage Playlists</h3>
+                    <span style="font-size: 12px; color: #888; margin-top: 3px;" data-i18n="ui_manage_playlists_desc">Here you can add multiple playlists and remove them.</span>
+                </div>
                 <button onclick="closePlaylistManager()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
             </div>
             <div style="padding: 15px 15px 0 15px;">
@@ -433,55 +473,27 @@
         </div>
     </div>
 
-    <!-- MODAL KONFIGURACJI API -->
-    <div id="api-modal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 style="margin:0; color:var(--gold);" data-i18n="ui_api_title">🔑 Google API Key Setup</h3>
-                <button onclick="closeApiSetup(true)" id="api-close-btn" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
-            </div>
-            <div style="padding: 0 15px 15px 15px; overflow-y:auto; max-height: 70vh;">
-                <div style="background: rgba(0, 255, 136, 0.1); border-left: 4px solid #00ff88; padding: 12px; margin-top: 15px; border-radius: 4px; font-size: 0.85em; color: #ccc; line-height: 1.4;" data-i18n="ui_api_safe">
-                    🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser (Local Storage). It is never sent to any external servers (except directly to Google to fetch tracks).
-                </div>
-
-                <div class="api-setup-box" style="margin-top: 15px;">
-                    <label for="api-key-input" style="font-weight:bold; color: #fff;" data-i18n="ui_api_label">Your YouTube Data API v3 key:</label>
-                    <input type="password" id="api-key-input" class="api-input" placeholder="AIzaSy...">
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button onclick="saveApiKey()" style="background: var(--gold); color: black; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; flex-grow: 1;" data-i18n="ui_api_save">💾 SAVE AND CHECK</button>
-                        <button onclick="toggleApiVisibility()" id="btn-show-api" style="background: #222; color: #fff; border: 1px solid #444; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer;" data-i18n="ui_api_show">👁 SHOW</button>
-                    </div>
-                </div>
-
-                <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 6px; font-size: 0.85em; color: #ccc; line-height: 1.5; margin-top: 15px;">
-                    <strong style="color: #fff; font-size: 1.1em;" data-i18n="ui_api_howto_title">Where to get a free API key?</strong>
-                    <ol style="margin: 10px 0 0 0; padding-left: 20px; color: var(--accent);">
-                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_1">Log in to <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.</li>
-                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_2">Create a new project (or select an existing one).</li>
-                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_3">In the left menu click 'APIs & Services' -> 'Library'.</li>
-                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_4">Search and enable: 'YouTube Data API v3'.</li>
-                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_5">Go to the 'Credentials' tab -> 'Create credentials' -> 'API key'.</li>
-                        <li style="color: #bbb; margin-bottom: 5px;" data-i18n="ui_api_howto_6">Copy the generated key and paste it in the field above.</li>
-                    </ol>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- TUTORIAL MODAL -->
     <div id="tutorial-modal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 style="margin:0; color:var(--accent);" data-i18n="ui_tut_title">🎓 Tutorial: First steps and configuration</h3>
-                <button onclick="closeTutorial()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+                <h3 style="margin:0; color:var(--accent);" data-i18n="ui_tut_title">🎓 Tutorial: First steps</h3>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <select id="tut-lang-select" class="lang-select" onchange="changeLanguage(this.value)" style="font-size: 0.8em; padding: 3px 6px;">
+                        <option value="en">EN</option>
+                        <option value="pl">PL</option>
+                        <option value="de">DE</option>
+                        <option value="fr">FR</option>
+                        <option value="tr">TR</option>
+                    </select>
+                    <button onclick="closeTutorial()" style="background:none; border:none; color:#aaa; font-size:1.5em; cursor:pointer; transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#aaa'">&times;</button>
+                </div>
             </div>
             <div style="padding: 20px; overflow-y:auto; flex-grow:1; max-height: 70vh;">
                 
                 <div class="tut-section">
                     <h4 data-i18n="ui_tut_1_title">1. Interface and Features</h4>
                     <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;" data-i18n="ui_tut_1_desc">
-                        • <strong>Left Panel (Base):</strong> Here you will find tracks from your default playlists. The player randomly shuffles songs from them when the viewer queue is empty.<br>• <strong>Middle Panel:</strong> !SR switch, port settings, API key, and the main YouTube player.<br>• <strong>Right Panel (!SR Queue):</strong> Viewer requests from Twitch. You can <strong>Drag & Drop</strong> tracks here with your mouse to easily change their order!
+                        • <strong>Left Panel (Base):</strong> Here you will find tracks from your default playlists. The player randomly shuffles songs from them when the viewer queue is empty. You can add more playlists or remove the default one in the Playlist Manager (📁).<br>• <strong>Middle Panel:</strong> Bot & API status on the left, !SR switch in the center, Settings gear icon on the right, and the main YouTube player.<br>• <strong>Right Panel (!SR Queue):</strong> Viewer requests from Twitch. You can <strong>Drag & Drop</strong> tracks here with your mouse to easily change their order!
                     </p>
                 </div>
 
@@ -491,7 +503,7 @@
                         <span data-i18n="ui_tut_2_desc_1">For the YouTube player and API to work without blocks, the file must be run through a local HTTP server. We will use the built-in server in Streamer.bot for this.</span><br><br>
                         1. <span data-i18n="ui_tut_2_desc_2">In Streamer.bot go to the <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong> tab.</span><br>
                         2. <span data-i18n="ui_tut_2_desc_3">Set Port:</span> <input type="number" id="tut-http-port" value="7474" class="tut-input" oninput="updateTutLink()"> <span data-i18n="ui_tut_2_desc_3b">(you can leave the suggested default!)</span><br>
-                        3. <span data-i18n="ui_tut_2_desc_4">In the <strong>Mappings</strong> field, click the folder icon and point to the folder where this HTML file is located.</span> <br><span data-i18n="ui_tut_2_desc_4b">In the PATH field, specify the subfolder name for the page:</span> <input type="text" id="tut-folder" value="YTM" class="tut-input" oninput="updateTutLink()"><br><span data-i18n="ui_tut_2_desc_4c">(This will be part of the website address! e.g., 'YTM' = http://localhost:7474/YTM)</span><br>
+                        3. <span data-i18n="ui_tut_2_desc_4">In the <strong>Mappings</strong> field, click the folder icon and point to the folder where this HTML file is located.</span> <br><span data-i18n="ui_tut_2_desc_4b">In the PATH field, specify the subfolder name for the page:</span> <input type="text" id="tut-folder" value="ytm" class="tut-input" oninput="updateTutLink()"><br><span data-i18n="ui_tut_2_desc_4c">(This will be part of the website address! e.g., 'ytm' = http://localhost:7474/ytm)</span><br>
                         4. <span data-i18n="ui_tut_2_desc_5">Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.</span>
                     </p>
                 </div>
@@ -502,6 +514,7 @@
                         <span data-i18n="ui_tut_3_desc_1">For chat commands (!sr, !skip, deleting, etc.) to work, you need an active WebSocket connection.</span><br><br>
                         1. <span data-i18n="ui_tut_3_desc_2">Go to <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.</span><br>
                         2. <span data-i18n="ui_tut_3_desc_3">Set port:</span> <input type="number" id="tut-ws-port" value="8080" class="tut-input" oninput="updateTutLink()"> <span data-i18n="ui_tut_3_desc_3b">(you can leave the suggested default!)</span><br> 
+                        <span style="color:var(--accent); font-size: 12px; margin-left: 15px;" data-i18n="ui_tut_3_desc_pass">* If you set a password here, remember to enter it in the Settings (⚙️) panel on the website!</span><br>
                         3. <span data-i18n="ui_tut_3_desc_4">Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.</span><br>
                     </p>
                 </div>
@@ -519,7 +532,7 @@
                 <div class="tut-section">
                     <h4 data-i18n="ui_tut_5_title">5. Google API Configuration</h4>
                     <p style="font-size: 14px; color: #ccc; margin-top: 0; line-height: 1.5;" data-i18n="ui_tut_5_desc">
-                        After clicking the button at the bottom of this window, you will be prompted to enter your free API key, which allows the system to pull video data.<br><br>🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser's memory (Local Storage). It is never sent to any external servers.
+                        To fetch videos, you need a free API key. You can set it up in the Settings (⚙️) panel after closing this window.<br><br>🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser's memory (Local Storage).
                     </p>
                 </div>
 
@@ -540,7 +553,96 @@
 
     <script>
         // =========================================================================
-        // SŁOWNIK JĘZYKOWY (i18n)
+        // PROJECT VERSION AND GITHUB DATA
+        // =========================================================================
+        const CURRENT_VERSION = "v1.1.0";
+        const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
+        
+        document.title = `YTM Song Request ${CURRENT_VERSION}`;
+        document.getElementById('app-version-display').innerText = CURRENT_VERSION;
+        
+        async function checkGithubUpdates() {
+            try {
+                // Fetching the list of releases
+                let res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases`);
+                if (!res.ok) return;
+                let releases = await res.json();
+                
+                if (releases && releases.length > 0) {
+                    // The latest release on GitHub
+                    let latest = releases[0];
+                    
+                    // 1. Update button logic
+                    if (latest.tag_name !== CURRENT_VERSION) {
+                        const updateBtn = document.getElementById('update-btn');
+                        updateBtn.style.display = 'block';
+                        // SAVE VERSION FOR TRANSLATOR:
+                        updateBtn.setAttribute('data-version', latest.tag_name); 
+                        updateBtn.innerText = t('ui_update_btn', {version: latest.tag_name});
+                        updateBtn.onclick = () => window.open(latest.html_url, '_blank');
+                    } else {
+                        document.getElementById('update-btn').style.display = 'none';
+                    }
+
+                    // 2. Rendering the changelog list
+                    const clContent = document.getElementById('changelog-content');
+                    clContent.innerHTML = '';
+                    
+                    releases.forEach(rel => {
+                        let date = new Date(rel.published_at).toLocaleDateString();
+                        let isCurrent = (rel.tag_name === CURRENT_VERSION) 
+                            ? '<span style="color:#00ff88; font-size:0.7em; margin-left:10px;">(Your Version)</span>' 
+                            : '';
+                        
+                        let bodyText = rel.body || "No release notes provided.";
+                        
+                        let formattedBody = bodyText.split('\n').map(line => {
+                            let trimmed = line.trim();
+                            if(trimmed.length === 0) return "<br>";
+                            
+                            let hasBadge = false;
+                            trimmed = trimmed.replace(/^(NEW|FIX|CHANGE|CHG)\s/i, function(match, type) {
+                                hasBadge = true;
+                                let cssClass = "cl-chg";
+                                let tUpper = type.toUpperCase();
+                                if(tUpper === "NEW") cssClass = "cl-new";
+                                else if (tUpper === "FIX") cssClass = "cl-fix";
+                                return `<span class="cl-badge ${cssClass}">${tUpper}</span> `;
+                            });
+
+                            if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                                trimmed = trimmed.substring(2);
+                                hasBadge = true;
+                            }
+
+                            if(hasBadge) return `<li style="margin-bottom: 6px;">${trimmed}</li>`;
+                            return `<div>${trimmed}</div>`;
+                        }).join('');
+
+                        clContent.innerHTML += `
+                            <div class="changelog-entry">
+                                <h4 class="cl-version">
+                                    <a href="${rel.html_url}" target="_blank" style="color:var(--gold); text-decoration:none;" title="View this release on GitHub">
+                                        ${rel.name || rel.tag_name}
+                                    </a> 
+                                    ${isCurrent} 
+                                    <span class="cl-date">${date}</span>
+                                </h4>
+                                <div class="cl-body"><ul style="padding-left: 20px; margin-top: 5px;">${formattedBody}</ul></div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    document.getElementById('changelog-content').innerHTML = '<div style="color:#888; padding:20px; text-align:center;">No releases found on GitHub.</div>';
+                }
+            } catch(e) {
+                console.error("GitHub API Error:", e);
+                document.getElementById('changelog-content').innerHTML = '<div style="color:var(--red); padding:20px; text-align:center;">Error loading changelog from GitHub.</div>';
+            }
+        }
+
+        // =========================================================================
+        // LANGUAGE DICTIONARY (i18n)
         // =========================================================================
         const i18n = {
             en: {
@@ -552,19 +654,25 @@
                 ui_search_base: "🔍 Search track (title or author)...",
                 ui_language: "Language",
                 ui_sr_toggle_title: "Enable or disable viewer requests",
-                ui_ws_port: "WebSocket Port",
-                ui_save_reconnect: "Save and reconnect",
+                ui_ws_port: "Port",
+                ui_ws_pass: "Password (optional)",
+                ui_save_reconnect: "Save & Reconnect",
                 ui_bot_connecting: "🔴 Connecting to Bot...",
                 ui_bot_connected: "🟢 Bot Connected",
                 ui_bot_disconnected: "🔴 Bot Disconnected",
+                ui_bot_auth_fail: "🔴 Bot Auth Failed!",
                 ui_track_base: "Track Base",
                 ui_manage_playlists: "📁 Manage Playlists",
+                ui_manage_playlists_desc: "Here you can add multiple playlists and remove them.",
+                ui_default_playlist_name: "Default YTM Playlist",
                 ui_api_setup: "API Setup",
                 ui_waiting_start: "Waiting for start",
                 ui_prev: "⏮ PREVIOUS",
                 ui_play_pause: "⏯ PAUSE / RESUME",
                 ui_stop: "⏹ STOP",
                 ui_next: "⏭ NEXT",
+                ui_stop_state: "STOP",
+                ui_error_skip: "❌ ERROR - SKIPPING...",
                 ui_manual_url: "Paste YouTube link here...",
                 ui_add: "ADD",
                 ui_queue: "QUEUE !SR",
@@ -576,6 +684,7 @@
                 ui_sys_logs: "🔧 SYSTEM LOGS",
                 ui_changelog_btn: "📜 CHANGELOG",
                 ui_help_btn: "❓ HELP",
+                ui_update_btn: "🚀 NEW UPDATE: {version}",
                 ui_ban_title: "🔨 Blacklist",
                 ui_clear_bans: "🧹 CLEAR ALL BANS",
                 ui_empty_bans: "The banned tracks list is empty.",
@@ -583,10 +692,16 @@
                 ui_playlist_url: "Paste link to new YT playlist...",
                 ui_empty_playlists: "No saved playlists. Add a new one above!",
                 ui_remove: "REMOVE",
+                
+                ui_settings: "⚙️ Settings",
+                ui_general: "General",
+                ui_chat_msgs: "Chat Messages",
+                ui_chat_msgs_desc: "Here you can edit the text of the messages the bot sends to your chat. Max length is 500 chars. Use variables like {user} where applicable. Messages are saved per language.",
+                
                 ui_api_title: "🔑 Google API Key Setup",
-                ui_api_safe: "🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser (Local Storage). It is never sent to any external servers (except directly to Google to fetch tracks).",
+                ui_api_safe: "Your API key is saved locally in your browser.",
                 ui_api_label: "Your YouTube Data API v3 key:",
-                ui_api_save: "💾 SAVE AND CHECK",
+                ui_api_save: "💾 SAVE",
                 ui_api_show: "👁 SHOW",
                 ui_api_hide: "🙈 HIDE",
                 ui_api_howto_title: "Where to get a free API key?",
@@ -596,9 +711,10 @@
                 ui_api_howto_4: "Search and enable: 'YouTube Data API v3'.",
                 ui_api_howto_5: "Go to the 'Credentials' tab -> 'Create credentials' -> 'API key'.",
                 ui_api_howto_6: "Copy the generated key and paste it in the field above.",
-                ui_tut_title: "🎓 Tutorial: First steps and configuration",
+                
+                ui_tut_title: "🎓 Tutorial: First steps",
                 ui_tut_1_title: "1. Interface and Features",
-                ui_tut_1_desc: "• <strong>Left Panel (Base):</strong> Here you will find tracks from your default playlists. The player randomly shuffles songs from them when the viewer queue is empty.<br>• <strong>Middle Panel:</strong> !SR switch, port settings, API key, and the main YouTube player.<br>• <strong>Right Panel (!SR Queue):</strong> Viewer requests from Twitch. You can <strong>Drag & Drop</strong> tracks here with your mouse to easily change their order!",
+                ui_tut_1_desc: "• <strong>Left Panel (Base):</strong> Here you will find tracks from your default playlists. The player randomly shuffles songs from them when the viewer queue is empty. You can add more playlists or remove the default one in the Playlist Manager (📁).<br>• <strong>Middle Panel:</strong> Bot & API status on the left, !SR switch in the center, Settings gear icon on the right, and the main YouTube player.<br>• <strong>Right Panel (!SR Queue):</strong> Viewer requests from Twitch. You can <strong>Drag & Drop</strong> tracks here with your mouse to easily change their order!",
                 ui_tut_2_title: "2. HTTP Server in Streamer.bot",
                 ui_tut_2_desc_1: "For the YouTube player and API to work without blocks, the file must be run through a local HTTP server. We will use the built-in server in Streamer.bot for this.",
                 ui_tut_2_desc_2: "In Streamer.bot go to the <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong> tab.",
@@ -606,25 +722,24 @@
                 ui_tut_2_desc_3b: "(you can leave the suggested default!)",
                 ui_tut_2_desc_4: "In the <strong>Mappings</strong> field, click the folder icon and point to the folder where this HTML file is located.",
                 ui_tut_2_desc_4b: "In the PATH field, specify the subfolder name for the page:",
-                ui_tut_2_desc_4c: "(This will be part of the website address! e.g., 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_4c: "(This will be part of the website address! e.g., 'ytm' = http://localhost:7474/ytm)",
                 ui_tut_2_desc_5: "Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.",
                 ui_tut_3_title: "3. WebSocket Server in Streamer.bot",
                 ui_tut_3_desc_1: "For chat commands (!sr, !skip, deleting, etc.) to work, you need an active WebSocket connection.",
                 ui_tut_3_desc_2: "Go to <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
                 ui_tut_3_desc_3: "Set port:",
                 ui_tut_3_desc_3b: "(you can leave the suggested default!)",
+                ui_tut_3_desc_pass: "* If you set a password here, remember to enter it in the Settings (⚙️) panel on the website!",
                 ui_tut_3_desc_4: "Check <strong>Auto Start</strong> and click <strong>Start Server</strong>.",
                 ui_tut_4_title: "4. Import Actions to Streamer.bot",
                 ui_tut_4_desc: "For chat commands (!sr, !skip, deleting, etc.) to work, you need specific action commands and queues in Streamer.bot.<br><br>1. Click the <strong>Import</strong> button on the top bar of Streamer.bot.<br>2. Copy the code below, paste it into the empty <em>Import String</em> field, and click <strong>Import</strong>.",
                 ui_copy_code: "Copy Import Code",
                 ui_tut_5_title: "5. Google API Configuration",
-                ui_tut_5_desc: "After clicking the button at the bottom of this window, you will be prompted to enter your free API key, which allows the system to pull video data.<br><br>🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser's memory (Local Storage). It is never sent to any external servers.",
+                ui_tut_5_desc: "To fetch videos, you need a free API key. You can set it up in the Settings (⚙️) panel after closing this window.<br><br>🔒 <strong>Your data is 100% safe!</strong> Your API key is saved only locally in your browser's memory (Local Storage).",
                 ui_tut_done_file: "🔗 After completing the steps above, NOW GO to the page below (if the link doesn't work, come back here!):",
                 ui_tut_done_http: "🔗 Done, everything works! Your page address is now:",
                 ui_tut_reminder: "⚠️ Remember that Streamer.bot settings must always match the ones on this page!",
                 ui_tut_btn_understand: "I UNDERSTAND, CONTINUE!",
-                ui_tut_btn_api: "I UNDERSTAND, SETUP API",
-                ui_tut_btn_close: "I UNDERSTAND, CLOSE",
 
                 msg_sr_on: "Song Request is now active! You can add a track: !sr YouTube link",
                 msg_sr_off: "Song Request has been stopped!",
@@ -650,11 +765,11 @@
                 msg_sr_disabled: "❌ @{user}, !sr requests are currently DISABLED.",
                 msg_sr_banned: "❌ @{user}, Unfortunately this track is banned!",
                 msg_sr_dupe: "❌ @{user}, the track has already been requested!",
-                msg_err_empty: "enter a song title or paste a YouTube link!",
-                msg_err_not_found: "could not find any track for: {info}",
-                msg_err_long: "track is too long! (It is {info}m, limit is 15m)",
-                msg_err_cat: "found video is not music! (Category: {info}). Try adding 'music' to your search.",
-                msg_err_api: "YouTube servers error. Try pasting a link.",
+                msg_err_empty: "❌ @{user}, enter a song title or paste a YouTube link!",
+                msg_err_not_found: "❌ @{user}, could not find any track for: {info}",
+                msg_err_long: "❌ @{user}, track is too long! (It is {info}m, limit is 15m)",
+                msg_err_cat: "❌ @{user}, found video is not music! (Category: {info}). Try adding 'music' to your search.",
+                msg_err_api: "❌ @{user}, YouTube servers error. Try pasting a link.",
                 msg_searching: "🔍 @{user}, searching for track...",
                 msg_err_id: "❌ @{user}, could not recognize track ID.",
                 msg_err_yt_read: "❌ @{user}, error reading from YouTube.",
@@ -671,19 +786,25 @@
                 ui_search_base: "🔍 Szukaj utworu (tytuł lub autor)...",
                 ui_language: "Język",
                 ui_sr_toggle_title: "Włącz lub wyłącz zamówienia widzów",
-                ui_ws_port: "Port WebSocket",
-                ui_save_reconnect: "Zapisz i połącz ponownie",
+                ui_ws_port: "Port",
+                ui_ws_pass: "Hasło (opcjonalnie)",
+                ui_save_reconnect: "Zapisz i połącz",
                 ui_bot_connecting: "🔴 Łączenie z Botem...",
                 ui_bot_connected: "🟢 Bot Połączony",
                 ui_bot_disconnected: "🔴 Bot Rozłączony",
+                ui_bot_auth_fail: "🔴 Błąd autoryzacji bota!",
                 ui_track_base: "Baza Utworów",
                 ui_manage_playlists: "📁 Zarządzaj Playlistami",
+                ui_manage_playlists_desc: "Tutaj możesz dodawać nowe playlisty i usuwać obecne.",
+                ui_default_playlist_name: "Domyślna Playlista YTM",
                 ui_api_setup: "Konfiguracja API",
                 ui_waiting_start: "Czekam na start",
                 ui_prev: "⏮ POPRZEDNI",
                 ui_play_pause: "⏯ PAUZA / WZNÓW",
                 ui_stop: "⏹ STOP",
                 ui_next: "⏭ NASTĘPNY",
+                ui_stop_state: "ZATRZYMANO",
+                ui_error_skip: "❌ BŁĄD - POMIJANIE...",
                 ui_manual_url: "Wklej link z YouTube tutaj...",
                 ui_add: "DODAJ",
                 ui_queue: "KOLEJKA !SR",
@@ -695,29 +816,37 @@
                 ui_sys_logs: "🔧 LOGI SYSTEMOWE",
                 ui_changelog_btn: "📜 CHANGELOG",
                 ui_help_btn: "❓ HELP",
+                ui_update_btn: "🚀 NOWA AKTUALIZACJA: {version}",
                 ui_ban_title: "🔨 Czarna Lista",
-                ui_clear_bans: "🧹 WYCZYŚĆ WSZYSTKIE BANNy",
+                ui_clear_bans: "🧹 WYCZYŚĆ WSZYSTKIE BANNY",
                 ui_empty_bans: "Lista zbanowanych utworów jest pusta.",
                 ui_unban: "ODBANUJ",
                 ui_playlist_url: "Wklej link do nowej playlisty YT...",
                 ui_empty_playlists: "Brak zapisanych playlist. Dodaj nową u góry!",
                 ui_remove: "USUŃ",
+
+                ui_settings: "⚙️ Ustawienia",
+                ui_general: "Ogólne",
+                ui_chat_msgs: "Komunikaty Czatu",
+                ui_chat_msgs_desc: "Tutaj możesz edytować teksty wiadomości, które bot wysyła na czat. Maksymalna długość to 500 znaków. Używaj zmiennych np. {user} tam gdzie to możliwe. Zmiany zapisują się dla wybranego języka.",
+
                 ui_api_title: "🔑 Konfiguracja Google API Key",
-                ui_api_safe: "🔒 <strong>Twoje dane są w 100% bezpieczne!</strong> Twój klucz API jest zapisywany wyłącznie lokalnie w pamięci Twojej przeglądarki (Local Storage). Nigdy nie jest wysyłany na żadne zewnętrzne serwery (poza zapytaniami bezpośrednio do Google w celu pobrania utworów).",
+                ui_api_safe: "Twój klucz API jest zapisywany lokalnie w Twojej przeglądarce.",
                 ui_api_label: "Twój klucz YouTube Data API v3:",
-                ui_api_save: "💾 ZAPISZ I SPRAWDŹ",
+                ui_api_save: "💾 ZAPISZ",
                 ui_api_show: "👁 POKAŻ",
                 ui_api_hide: "🙈 UKRYJ",
                 ui_api_howto_title: "Skąd wziąć darmowy klucz API?",
                 ui_api_howto_1: "Zaloguj się na <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.",
-                ui_api_howto_2: "Utwórz nowy projekt (lub wybierz istniejący).",
+                ui_api_howto_2: "Utwórz nowy projekt.",
                 ui_api_howto_3: "W menu po lewej kliknij 'Interfejsy API i usługi' -> 'Biblioteka'.",
                 ui_api_howto_4: "Wyszukaj i włącz: 'YouTube Data API v3'.",
-                ui_api_howto_5: "Przejdź do zakładki 'Dane logowania' -> 'Utwórz dane logowania' -> 'Klucz API'.",
+                ui_api_howto_5: "Przejdź do 'Dane logowania' -> 'Utwórz dane logowania' -> 'Klucz API'.",
                 ui_api_howto_6: "Skopiuj wygenerowany klucz i wklej go w polu powyżej.",
-                ui_tut_title: "🎓 Poradnik: Pierwsze kroki i konfiguracja",
+                
+                ui_tut_title: "🎓 Poradnik: Pierwsze kroki",
                 ui_tut_1_title: "1. Budowa Interfejsu i Funkcje",
-                ui_tut_1_desc: "• <strong>Lewy Panel (Baza):</strong> Tu znajdują się utwory z Twoich domyślnych playlist. Odtwarzacz losuje z nich piosenki, gdy w kolejce widzów jest pusto.<br>• <strong>Środkowy Panel:</strong> Włącznik !SR, ustawienia portów, klucz API oraz główny odtwarzacz YouTube.<br>• <strong>Prawy Panel (Kolejka !SR):</strong> Zamówienia od widzów z Twitcha. Możesz tutaj <strong>przeciągać i upuszczać (Drag & Drop)</strong> utwory myszką, aby wygodnie zmienić ich kolejność!",
+                ui_tut_1_desc: "• <strong>Lewy Panel (Baza):</strong> Tu znajdują się utwory z Twoich domyślnych playlist. Odtwarzacz losuje z nich piosenki, gdy w kolejce widzów jest pusto. Domyślną playlistę możesz usunąć i dodać inne w Menedżerze (📁).<br>• <strong>Środkowy Panel:</strong> Status bota i API po lewej, włącznik !SR na środku, Zębatka ustawień po prawej oraz główny odtwarzacz YouTube.<br>• <strong>Prawy Panel (Kolejka !SR):</strong> Zamówienia od widzów z Twitcha. Możesz tutaj <strong>przeciągać i upuszczać (Drag & Drop)</strong> utwory myszką, aby wygodnie zmienić ich kolejność!",
                 ui_tut_2_title: "2. Serwer HTTP w Streamer.bot",
                 ui_tut_2_desc_1: "Aby odtwarzacz YouTube oraz API działały bez blokad, plik musi być uruchomiony przez lokalny serwer HTTP. Wykorzystamy do tego wbudowany serwer w programie Streamer.bot.",
                 ui_tut_2_desc_2: "W Streamer.bot przejdź do zakładki <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong>.",
@@ -725,25 +854,24 @@
                 ui_tut_2_desc_3b: "(możesz zostawić domyślnie sugerowany!)",
                 ui_tut_2_desc_4: "W polu <strong>Mappings</strong> kliknij ikonę folderu i wskaż folder, w którym znajduje się ten plik HTML.",
                 ui_tut_2_desc_4b: "W polu PATH wskaż nazwę podfolderu dla strony:",
-                ui_tut_2_desc_4c: "(Będzie to część adresu strony! np 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_4c: "(Będzie to część adresu strony! np 'ytm' = http://localhost:7474/ytm)",
                 ui_tut_2_desc_5: "Zaznacz <strong>Auto Start</strong> i kliknij <strong>Start Server</strong>.",
-                ui_tut_3_title: "3. Serwer WebSocket i Skrypty w Streamer.bot",
+                ui_tut_3_title: "3. Serwer WebSocket w Streamer.bot",
                 ui_tut_3_desc_1: "Aby polecenia na czacie (!sr, !skip, usuwanie itp.) działały, potrzebujesz aktywnego połączenia WebSocket.",
                 ui_tut_3_desc_2: "Przejdź do <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
                 ui_tut_3_desc_3: "Ustaw port:",
                 ui_tut_3_desc_3b: "(możesz zostawić domyślnie sugerowany!)",
+                ui_tut_3_desc_pass: "* Jeżeli ustawisz tutaj hasło, pamiętaj aby wpisać je w panelu Ustawień (⚙️) na stronie!",
                 ui_tut_3_desc_4: "Zaznacz <strong>Auto Start</strong> i kliknij <strong>Start Server</strong>.",
                 ui_tut_4_title: "4. Import Akcji do Streamer.bot",
                 ui_tut_4_desc: "Aby polecenia na czacie (!sr, !skip, usuwanie itp.) działały, potrzebujesz konkretnych komend akcji i kolejek w Stremerbot.<br><br>1. Kliknij przycisk <strong>Import</strong> na górnym pasku Streamer.bota.<br>2. Skopiuj poniższy kod, wklej go w puste pole <em>Import String</em> i kliknij <strong>Import</strong>.",
                 ui_copy_code: "Kopiuj Kod Importu",
                 ui_tut_5_title: "5. Konfiguracja Google API",
-                ui_tut_5_desc: "Po kliknięciu przycisku na dole tego okna, zostaniesz przeniesiony do wpisania darmowego klucza API, dzięki któremu system zaciąga dane o filmach.<br><br>🔒 <strong>Twoje dane są w 100% bezpieczne!</strong> Twój klucz API jest zapisywany wyłącznie lokalnie w pamięci Twojej przeglądarki (Local Storage). Nigdy nie jest wysyłany na żadne zewnętrzne serwery.",
+                ui_tut_5_desc: "Aby pobierać utwory potrzebujesz darmowego klucza API. Ustawisz go w zakładce Ustawienia (⚙️) po zamknięciu tego okna.<br><br>🔒 <strong>Twoje dane są w 100% bezpieczne!</strong> Twój klucz API jest zapisywany wyłącznie lokalnie w pamięci Twojej przeglądarki.",
                 ui_tut_done_file: "🔗 Po wykonaniu powyższych kroków TERAZ PRZEJDŹ do strony poniżej (jeżeli link nie działa, wróć tu!):",
                 ui_tut_done_http: "🔗 Zrobione, wszystko działa! Twój adres strony to teraz:",
                 ui_tut_reminder: "⚠️ Pamiętaj, że ustawienia w Streamer.bot muszą być zawsze takie same jak na tej stronie!",
                 ui_tut_btn_understand: "ROZUMIEM, DALEJ!",
-                ui_tut_btn_api: "ROZUMIEM, KONFIGURUJ API",
-                ui_tut_btn_close: "ROZUMIEM, ZAMKNIJ",
 
                 msg_sr_on: "Song Request jest już aktywny! Możesz dodać utwór: !sr link z YouTube",
                 msg_sr_off: "Song Request został zatrzymany!",
@@ -769,11 +897,11 @@
                 msg_sr_disabled: "❌ @{user}, zamówienia !sr są aktualnie WYŁĄCZONE.",
                 msg_sr_banned: "❌ @{user}, Niestety ten utwór jest zbanowany!",
                 msg_sr_dupe: "❌ @{user}, utwór został już zamówiony!",
-                msg_err_empty: "wpisz tytuł piosenki lub wklej link z YouTube!",
-                msg_err_not_found: "nie znalazłem żadnego utworu pod hasłem: {info}",
-                msg_err_long: "utwór jest za długi! (Trwa {info}m, a limit to 15m)",
-                msg_err_cat: "znaleziony film to nie jest muzyka! (Kategoria: {info}). Spróbuj wpisać tytuł i dopisać słowo 'music'.",
-                msg_err_api: "błąd serwerów YouTube. Spróbuj wkleić link.",
+                msg_err_empty: "❌ @{user}, wpisz tytuł piosenki lub wklej link z YouTube!",
+                msg_err_not_found: "❌ @{user}, nie znalazłem żadnego utworu pod hasłem: {info}",
+                msg_err_long: "❌ @{user}, utwór jest za długi! (Trwa {info}m, a limit to 15m)",
+                msg_err_cat: "❌ @{user}, znaleziony film to nie jest muzyka! (Kategoria: {info}). Spróbuj wpisać tytuł i dopisać słowo 'music'.",
+                msg_err_api: "❌ @{user}, błąd serwerów YouTube. Spróbuj wkleić link.",
                 msg_searching: "🔍 @{user}, szukam utworu...",
                 msg_err_id: "❌ @{user}, nie rozpoznałem ID utworu.",
                 msg_err_yt_read: "❌ @{user}, błąd odczytu z YouTube.",
@@ -790,19 +918,25 @@
                 ui_search_base: "🔍 Track suchen (Titel oder Autor)...",
                 ui_language: "Sprache",
                 ui_sr_toggle_title: "Viewer-Anfragen aktivieren oder deaktivieren",
-                ui_ws_port: "WebSocket-Port",
-                ui_save_reconnect: "Speichern und neu verbinden",
+                ui_ws_port: "Port",
+                ui_ws_pass: "Passwort (optional)",
+                ui_save_reconnect: "Speichern & Verbinden",
                 ui_bot_connecting: "🔴 Verbinde mit Bot...",
                 ui_bot_connected: "🟢 Bot verbunden",
                 ui_bot_disconnected: "🔴 Bot getrennt",
+                ui_bot_auth_fail: "🔴 Bot-Auth Fehlgeschlagen!",
                 ui_track_base: "Track-Basis",
                 ui_manage_playlists: "📁 Playlists verwalten",
+                ui_manage_playlists_desc: "Hier können Sie Playlists verwalten und entfernen.",
+                ui_default_playlist_name: "Standard YTM Playlist",
                 ui_api_setup: "API-Einrichtung",
                 ui_waiting_start: "Warte auf Start",
                 ui_prev: "⏮ VORHERIGER",
                 ui_play_pause: "⏯ PAUSE / WEITER",
                 ui_stop: "⏹ STOP",
                 ui_next: "⏭ NÄCHSTER",
+                ui_stop_state: "GESTOPPT",
+                ui_error_skip: "❌ FEHLER - ÜBERSPRINGE...",
                 ui_manual_url: "YouTube-Link hier einfügen...",
                 ui_add: "HINZUFÜGEN",
                 ui_queue: "WARTESCHLANGE !SR",
@@ -814,6 +948,7 @@
                 ui_sys_logs: "🔧 SYSTEMPROTOKOLLE",
                 ui_changelog_btn: "📜 CHANGELOG",
                 ui_help_btn: "❓ HILFE",
+                ui_update_btn: "🚀 NEUES UPDATE: {version}",
                 ui_ban_title: "🔨 Schwarze Liste",
                 ui_clear_bans: "🧹 ALLE BANS LÖSCHEN",
                 ui_empty_bans: "Die Liste der gebannten Tracks ist leer.",
@@ -821,48 +956,54 @@
                 ui_playlist_url: "Link zur neuen YT-Playlist einfügen...",
                 ui_empty_playlists: "Keine Playlists gespeichert. Oben hinzufügen!",
                 ui_remove: "LÖSCHEN",
+                
+                ui_settings: "⚙️ Einstellungen",
+                ui_general: "Allgemein",
+                ui_chat_msgs: "Chat-Nachrichten",
+                ui_chat_msgs_desc: "Hier können Sie die Bot-Nachrichten für Ihren Chat bearbeiten. Maximale Länge beträgt 500 Zeichen. Verwenden Sie Variablen wie {user}. Nachrichten werden pro Sprache gespeichert.",
+                
                 ui_api_title: "🔑 Google API Key Einrichtung",
-                ui_api_safe: "🔒 <strong>Ihre Daten sind 100% sicher!</strong> Ihr API-Schlüssel wird nur lokal im Speicher Ihres Browsers (Local Storage) gespeichert. Er wird niemals an externe Server gesendet (außer an Google).",
+                ui_api_safe: "Ihr API-Schlüssel wird lokal in Ihrem Browser gespeichert.",
                 ui_api_label: "Ihr YouTube Data API v3 Schlüssel:",
-                ui_api_save: "💾 SPEICHERN UND PRÜFEN",
+                ui_api_save: "💾 SPEICHERN",
                 ui_api_show: "👁 ZEIGEN",
                 ui_api_hide: "🙈 VERBERGEN",
                 ui_api_howto_title: "Wo bekomme ich einen kostenlosen API-Schlüssel?",
                 ui_api_howto_1: "Melden Sie sich in der <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a> an.",
-                ui_api_howto_2: "Erstellen Sie ein neues Projekt (oder wählen Sie ein bestehendes).",
-                ui_api_howto_3: "Klicken Sie im linken Menü auf 'APIs & Dienste' -> 'Bibliothek'.",
-                ui_api_howto_4: "Suchen und aktivieren Sie: 'YouTube Data API v3'.",
-                ui_api_howto_5: "Gehen Sie zum Tab 'Anmeldedaten' -> 'Anmeldedaten erstellen' -> 'API-Schlüssel'.",
-                ui_api_howto_6: "Kopieren Sie den generierten Schlüssel und fügen Sie ihn oben ein.",
-                ui_tut_title: "🎓 Tutorial: Erste Schritte und Konfiguration",
+                ui_api_howto_2: "Erstellen Sie ein neues Projekt.",
+                ui_api_howto_3: "Klicken Sie auf 'APIs & Dienste' -> 'Bibliothek'.",
+                ui_api_howto_4: "Aktivieren Sie 'YouTube Data API v3'.",
+                ui_api_howto_5: "Gehen Sie zu 'Anmeldedaten' -> 'Anmeldedaten erstellen' -> 'API-Schlüssel'.",
+                ui_api_howto_6: "Kopieren Sie den Schlüssel und fügen Sie ihn oben ein.",
+                
+                ui_tut_title: "🎓 Tutorial: Erste Schritte",
                 ui_tut_1_title: "1. Schnittstelle und Funktionen",
-                ui_tut_1_desc: "• <strong>Linkes Panel (Basis):</strong> Hier finden Sie Titel aus Ihren Standard-Playlists. Der Player mischt zufällig Songs daraus, wenn die Zuschauer-Warteschlange leer ist.<br>• <strong>Mittleres Panel:</strong> !SR-Schalter, Port-Einstellungen, API-Schlüssel und der Haupt-YouTube-Player.<br>• <strong>Rechtes Panel (!SR Queue):</strong> Zuschauer-Anfragen von Twitch. Sie können hier Tracks mit der Maus <strong>ziehen und ablegen (Drag & Drop)</strong>, um ihre Reihenfolge zu ändern!",
+                ui_tut_1_desc: "• <strong>Linkes Panel (Basis):</strong> Hier finden Sie Titel aus Ihren Standard-Playlists. Der Player mischt zufällig Songs daraus, wenn die Zuschauer-Warteschlange leer ist. Sie können weitere hinzufügen oder die Standard-Playlist entfernen (📁).<br>• <strong>Mittleres Panel:</strong> Bot- & API-Status links, !SR-Schalter in der Mitte, Einstellungen (⚙️) rechts und der Haupt-YouTube-Player.<br>• <strong>Rechtes Panel (!SR Queue):</strong> Zuschauer-Anfragen von Twitch. Sie können hier Tracks mit der Maus <strong>ziehen und ablegen (Drag & Drop)</strong>, um ihre Reihenfolge zu ändern!",
                 ui_tut_2_title: "2. HTTP-Server in Streamer.bot",
-                ui_tut_2_desc_1: "Damit der YouTube-Player und die API ohne Blockaden funktionieren, muss die Datei über einen lokalen HTTP-Server ausgeführt werden. Wir verwenden dafür den integrierten Server in Streamer.bot.",
+                ui_tut_2_desc_1: "Damit der YouTube-Player und die API ohne Blockaden funktionieren, muss die Datei über einen lokalen HTTP-Server ausgeführt werden.",
                 ui_tut_2_desc_2: "Gehen Sie in Streamer.bot zum Tab <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong>.",
                 ui_tut_2_desc_3: "Port einstellen:",
                 ui_tut_2_desc_3b: "(Sie können den empfohlenen Standardwert belassen!)",
                 ui_tut_2_desc_4: "Klicken Sie im Feld <strong>Mappings</strong> auf das Ordnersymbol und zeigen Sie auf den Ordner, in dem sich diese HTML-Datei befindet.",
                 ui_tut_2_desc_4b: "Geben Sie im PATH-Feld den Namen des Unterordners für die Seite an:",
-                ui_tut_2_desc_4c: "(Dies wird Teil der Website-Adresse! z. B. 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_4c: "(Dies wird Teil der Website-Adresse! z. B. 'ytm' = http://localhost:7474/ytm)",
                 ui_tut_2_desc_5: "Markieren Sie <strong>Auto Start</strong> und klicken Sie auf <strong>Start Server</strong>.",
                 ui_tut_3_title: "3. WebSocket-Server in Streamer.bot",
-                ui_tut_3_desc_1: "Damit Chat-Befehle (!sr, !skip, löschen usw.) funktionieren, benötigen Sie eine aktive WebSocket-Verbindung.",
+                ui_tut_3_desc_1: "Damit Chat-Befehle funktionieren, benötigen Sie eine aktive WebSocket-Verbindung.",
                 ui_tut_3_desc_2: "Gehen Sie zu <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
                 ui_tut_3_desc_3: "Port einstellen:",
                 ui_tut_3_desc_3b: "(Sie können den empfohlenen Standardwert belassen!)",
+                ui_tut_3_desc_pass: "* Wenn Sie hier ein Passwort festlegen, denken Sie daran, es im Einstellungsmenü (⚙️) einzugeben!",
                 ui_tut_3_desc_4: "Markieren Sie <strong>Auto Start</strong> und klicken Sie auf <strong>Start Server</strong>.",
                 ui_tut_4_title: "4. Aktionen in Streamer.bot importieren",
-                ui_tut_4_desc: "Damit Chat-Befehle (!sr, !skip, löschen usw.) funktionieren, benötigen Sie bestimmte Aktionsbefehle und Warteschlangen im Streamer.bot.<br><br>1. Klicken Sie auf die Schaltfläche <strong>Import</strong> in der oberen Leiste von Streamer.bot.<br>2. Kopieren Sie den Code unten, fügen Sie ihn in das leere Feld <em>Import String</em> ein und klicken Sie auf <strong>Import</strong>.",
+                ui_tut_4_desc: "Damit Chat-Befehle (!sr, !skip) funktionieren, benötigen Sie bestimmte Aktionsbefehle im Streamer.bot.<br><br>1. Klicken Sie auf <strong>Import</strong> in der oberen Leiste von Streamer.bot.<br>2. Kopieren Sie den Code unten, fügen Sie ihn in das leere Feld <em>Import String</em> ein und klicken Sie auf <strong>Import</strong>.",
                 ui_copy_code: "Importcode kopieren",
                 ui_tut_5_title: "5. Google API Konfiguration",
-                ui_tut_5_desc: "Nach dem Klicken auf die Schaltfläche unten in diesem Fenster werden Sie aufgefordert, Ihren kostenlosen API-Schlüssel einzugeben, mit dem das System Videodaten abrufen kann.<br><br>🔒 <strong>Ihre Daten sind 100% sicher!</strong> Ihr API-Schlüssel wird nur lokal im Speicher Ihres Browsers gespeichert. Er wird niemals an externe Server gesendet.",
+                ui_tut_5_desc: "Nach dem Schließen dieses Fensters können Sie Ihren API-Schlüssel im Einstellungsmenü (⚙️) eingeben.<br><br>🔒 <strong>Ihre Daten sind 100% sicher!</strong> Ihr API-Schlüssel wird nur lokal im Speicher Ihres Browsers gespeichert.",
                 ui_tut_done_file: "🔗 Nach Abschluss der obigen Schritte GEHEN SIE JETZT zur untenstehenden Seite (falls der Link nicht funktioniert, kommen Sie hierher zurück!):",
                 ui_tut_done_http: "🔗 Fertig, alles funktioniert! Ihre Seitenadresse lautet nun:",
                 ui_tut_reminder: "⚠️ Denken Sie daran, dass die Streamer.bot-Einstellungen immer mit denen auf dieser Seite übereinstimmen müssen!",
                 ui_tut_btn_understand: "ICH VERSTEHE, WEITER!",
-                ui_tut_btn_api: "ICH VERSTEHE, API EINRICHTEN",
-                ui_tut_btn_close: "ICH VERSTEHE, SCHLIESSEN",
 
                 msg_sr_on: "Song Request ist jetzt aktiv! Track hinzufügen: !sr YouTube-Link",
                 msg_sr_off: "Song Request wurde gestoppt!",
@@ -888,11 +1029,11 @@
                 msg_sr_disabled: "❌ @{user}, !sr Anfragen sind derzeit DEAKTIVIERT.",
                 msg_sr_banned: "❌ @{user}, dieser Track ist leider gebannt!",
                 msg_sr_dupe: "❌ @{user}, dieser Track wurde bereits gewünscht!",
-                msg_err_empty: "Gib einen Titel ein oder füge einen YouTube-Link ein!",
-                msg_err_not_found: "Kein Track gefunden für: {info}",
-                msg_err_long: "Track zu lang! (Ist {info}m, Limit ist 15m)",
-                msg_err_cat: "Gefundenes Video ist keine Musik! (Kategorie: {info}). Versuche, 'music' hinzuzufügen.",
-                msg_err_api: "YouTube Server-Fehler. Versuche, einen Link einzufügen.",
+                msg_err_empty: "❌ @{user}, Gib einen Titel ein oder füge einen YouTube-Link ein!",
+                msg_err_not_found: "❌ @{user}, Kein Track gefunden für: {info}",
+                msg_err_long: "❌ @{user}, Track zu lang! (Ist {info}m, Limit ist 15m)",
+                msg_err_cat: "❌ @{user}, Gefundenes Video ist keine Musik! (Kategorie: {info}). Versuche, 'music' hinzuzufügen.",
+                msg_err_api: "❌ @{user}, YouTube Server-Fehler. Versuche, einen Link einzufügen.",
                 msg_searching: "🔍 @{user}, suche Track...",
                 msg_err_id: "❌ @{user}, Track-ID nicht erkannt.",
                 msg_err_yt_read: "❌ @{user}, Fehler beim Lesen von YouTube.",
@@ -909,19 +1050,25 @@
                 ui_search_base: "🔍 Rechercher (titre ou auteur)...",
                 ui_language: "Langue",
                 ui_sr_toggle_title: "Activer les demandes des spectateurs",
-                ui_ws_port: "Port WebSocket",
-                ui_save_reconnect: "Sauvegarder et reconnecter",
+                ui_ws_port: "Port",
+                ui_ws_pass: "Mot de passe (facultatif)",
+                ui_save_reconnect: "Enregistrer & Reconnecter",
                 ui_bot_connecting: "🔴 Connexion au bot...",
                 ui_bot_connected: "🟢 Bot Connecté",
                 ui_bot_disconnected: "🔴 Bot Déconnecté",
+                ui_bot_auth_fail: "🔴 Échec de l'auth. du Bot!",
                 ui_track_base: "Base de pistes",
                 ui_manage_playlists: "📁 Gérer les Playlists",
+                ui_manage_playlists_desc: "Vous pouvez ajouter ou supprimer des playlists ici.",
+                ui_default_playlist_name: "Playlist YTM par défaut",
                 ui_api_setup: "Config API",
                 ui_waiting_start: "En attente de démarrage",
                 ui_prev: "⏮ PRÉCÉDENT",
                 ui_play_pause: "⏯ PAUSE / REPRENDRE",
                 ui_stop: "⏹ STOP",
                 ui_next: "⏭ SUIVANT",
+                ui_stop_state: "ARRÊTÉ",
+                ui_error_skip: "❌ ERREUR - SAUT...",
                 ui_manual_url: "Collez le lien YouTube ici...",
                 ui_add: "AJOUTER",
                 ui_queue: "FILE D'ATTENTE !SR",
@@ -933,6 +1080,7 @@
                 ui_sys_logs: "🔧 JOURNAUX SYSTÈME",
                 ui_changelog_btn: "📜 CHANGELOG",
                 ui_help_btn: "❓ AIDE",
+                ui_update_btn: "🚀 NOUVELLE MISE À JOUR: {version}",
                 ui_ban_title: "🔨 Liste Noire",
                 ui_clear_bans: "🧹 EFFACER TOUS LES BANNISSEMENTS",
                 ui_empty_bans: "La liste est vide.",
@@ -940,48 +1088,54 @@
                 ui_playlist_url: "Coller le lien de la nouvelle playlist YT...",
                 ui_empty_playlists: "Aucune playlist. Ajoutez-en une en haut !",
                 ui_remove: "SUPPRIMER",
+                
+                ui_settings: "⚙️ Paramètres",
+                ui_general: "Général",
+                ui_chat_msgs: "Messages du Chat",
+                ui_chat_msgs_desc: "Vous pouvez modifier ici les messages que le bot envoie. Longueur max : 500 caractères. Utilisez des variables comme {user}. Les messages sont enregistrés par langue.",
+
                 ui_api_title: "🔑 Configuration Clé API Google",
-                ui_api_safe: "🔒 <strong>Vos données sont 100% sécurisées !</strong> Votre clé API est enregistrée uniquement localement dans la mémoire de votre navigateur (Local Storage). Elle n'est jamais envoyée à des serveurs externes (sauf à Google).",
+                ui_api_safe: "Votre clé API est enregistrée localement dans votre navigateur.",
                 ui_api_label: "Votre clé API YouTube Data v3 :",
-                ui_api_save: "💾 SAUVEGARDER ET VÉRIFIER",
+                ui_api_save: "💾 SAUVEGARDER",
                 ui_api_show: "👁 VOIR",
                 ui_api_hide: "🙈 CACHER",
                 ui_api_howto_title: "Où obtenir une clé API gratuite ?",
                 ui_api_howto_1: "Connectez-vous à <a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>.",
-                ui_api_howto_2: "Créez un nouveau projet (ou sélectionnez-en un existant).",
+                ui_api_howto_2: "Créez un nouveau projet.",
                 ui_api_howto_3: "Dans le menu de gauche, cliquez sur 'API et services' -> 'Bibliothèque'.",
                 ui_api_howto_4: "Recherchez et activez : 'YouTube Data API v3'.",
                 ui_api_howto_5: "Allez dans l'onglet 'Identifiants' -> 'Créer des identifiants' -> 'Clé API'.",
                 ui_api_howto_6: "Copiez la clé générée et collez-la dans le champ ci-dessus.",
-                ui_tut_title: "🎓 Tutoriel : Premiers pas et configuration",
+                
+                ui_tut_title: "🎓 Tutoriel : Premiers pas",
                 ui_tut_1_title: "1. Interface et fonctionnalités",
-                ui_tut_1_desc: "• <strong>Panneau gauche (Base) :</strong> Vous trouverez ici les pistes de vos playlists par défaut. Le lecteur mélange aléatoirement des chansons lorsqu'il n'y a pas de requêtes de spectateurs.<br>• <strong>Panneau central :</strong> Interrupteur !SR, paramètres des ports, clé API et le lecteur principal YouTube.<br>• <strong>Panneau droit (File !SR) :</strong> Demandes des spectateurs depuis Twitch. Vous pouvez <strong>glisser-déposer (Drag & Drop)</strong> les pistes ici avec votre souris pour changer leur ordre facilement !",
+                ui_tut_1_desc: "• <strong>Panneau gauche (Base) :</strong> Vous trouverez ici les pistes de vos playlists par défaut. Vous pouvez en ajouter d'autres ou supprimer la playlist par défaut dans le gestionnaire (📁).<br>• <strong>Panneau central :</strong> Statut du bot et de l'API à gauche, Interrupteur !SR au centre, Paramètres (⚙️) à droite et le lecteur principal.<br>• <strong>Panneau droit (File !SR) :</strong> Demandes des spectateurs. Vous pouvez <strong>glisser-déposer</strong> les pistes !",
                 ui_tut_2_title: "2. Serveur HTTP dans Streamer.bot",
-                ui_tut_2_desc_1: "Pour que le lecteur YouTube et l'API fonctionnent sans blocages, le fichier doit être exécuté via un serveur HTTP local. Nous utiliserons le serveur intégré de Streamer.bot pour cela.",
+                ui_tut_2_desc_1: "Pour que le lecteur YouTube et l'API fonctionnent sans blocages, le fichier doit être exécuté via un serveur HTTP local.",
                 ui_tut_2_desc_2: "Dans Streamer.bot, allez dans l'onglet <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong>.",
                 ui_tut_2_desc_3: "Définissez le port :",
                 ui_tut_2_desc_3b: "(vous pouvez laisser la valeur par défaut !)",
-                ui_tut_2_desc_4: "Dans le champ <strong>Mappings</strong>, cliquez sur l'icône de dossier et pointez vers le dossier où se trouve ce fichier HTML.",
-                ui_tut_2_desc_4b: "Dans le champ PATH, spécifiez le nom du sous-dossier pour la page :",
-                ui_tut_2_desc_4c: "(Cela fera partie de l'adresse du site ! ex. 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_4: "Dans le champ <strong>Mappings</strong>, pointez vers le dossier où se trouve ce fichier HTML.",
+                ui_tut_2_desc_4b: "Dans le champ PATH, spécifiez le nom du sous-dossier :",
+                ui_tut_2_desc_4c: "(ex. 'ytm' = http://localhost:7474/ytm)",
                 ui_tut_2_desc_5: "Cochez <strong>Auto Start</strong> et cliquez sur <strong>Start Server</strong>.",
                 ui_tut_3_title: "3. Serveur WebSocket dans Streamer.bot",
-                ui_tut_3_desc_1: "Pour que les commandes de chat (!sr, !skip, suppression, etc.) fonctionnent, vous avez besoin d'une connexion WebSocket active.",
+                ui_tut_3_desc_1: "Pour que les commandes de chat fonctionnent, vous avez besoin d'une connexion WebSocket active.",
                 ui_tut_3_desc_2: "Allez dans <strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>.",
                 ui_tut_3_desc_3: "Définissez le port :",
                 ui_tut_3_desc_3b: "(vous pouvez laisser la valeur par défaut !)",
+                ui_tut_3_desc_pass: "* Si vous définissez un mot de passe ici, n'oubliez pas de l'entrer dans les Paramètres (⚙️) !",
                 ui_tut_3_desc_4: "Cochez <strong>Auto Start</strong> et cliquez sur <strong>Start Server</strong>.",
-                ui_tut_4_title: "4. Importer des actions dans Streamer.bot",
-                ui_tut_4_desc: "Pour que les commandes de chat (!sr, !skip, etc.) fonctionnent, vous avez besoin de commandes d'action spécifiques dans Streamer.bot.<br><br>1. Cliquez sur le bouton <strong>Import</strong> dans la barre supérieure de Streamer.bot.<br>2. Copiez le code ci-dessous, collez-le dans le champ vide <em>Import String</em>, et cliquez sur <strong>Import</strong>.",
+                ui_tut_4_title: "4. Importer des actions",
+                ui_tut_4_desc: "Pour que les commandes de chat fonctionnent, vous avez besoin de commandes d'action spécifiques dans Streamer.bot.<br><br>1. Cliquez sur le bouton <strong>Import</strong> dans Streamer.bot.<br>2. Copiez le code ci-dessous et cliquez sur <strong>Import</strong>.",
                 ui_copy_code: "Copier le code d'import",
                 ui_tut_5_title: "5. Configuration de l'API Google",
-                ui_tut_5_desc: "Après avoir cliqué sur le bouton en bas de cette fenêtre, il vous sera demandé d'entrer votre clé API gratuite, qui permet au système de récupérer les données des vidéos.<br><br>🔒 <strong>Vos données sont 100% sécurisées !</strong> Votre clé API est enregistrée uniquement localement dans la mémoire de votre navigateur. Elle n'est jamais envoyée à des serveurs externes.",
-                ui_tut_done_file: "🔗 Après avoir suivi les étapes ci-dessus, ALLEZ MAINTENANT sur la page ci-dessous (si le lien ne fonctionne pas, revenez ici !) :",
+                ui_tut_5_desc: "Vous pourrez définir votre clé API dans les Paramètres (⚙️) après avoir fermé cette fenêtre.<br><br>🔒 <strong>Vos données sont 100% sécurisées !</strong> Votre clé API est enregistrée uniquement localement.",
+                ui_tut_done_file: "🔗 Après avoir suivi les étapes ci-dessus, ALLEZ MAINTENANT sur la page ci-dessous :",
                 ui_tut_done_http: "🔗 Terminé, tout fonctionne ! L'adresse de votre page est maintenant :",
                 ui_tut_reminder: "⚠️ N'oubliez pas que les paramètres de Streamer.bot doivent toujours correspondre à ceux de cette page !",
                 ui_tut_btn_understand: "COMPRIS, CONTINUER !",
-                ui_tut_btn_api: "COMPRIS, CONFIGURER L'API",
-                ui_tut_btn_close: "COMPRIS, FERMER",
 
                 msg_sr_on: "Song Request est actif ! Envoyez : !sr lien YouTube",
                 msg_sr_off: "Song Request est désactivé !",
@@ -1007,11 +1161,11 @@
                 msg_sr_disabled: "❌ @{user}, les requêtes !sr sont actuellement DÉSACTIVÉES.",
                 msg_sr_banned: "❌ @{user}, malheureusement, cette piste est bannie !",
                 msg_sr_dupe: "❌ @{user}, cette piste a déjà été demandée !",
-                msg_err_empty: "entrez un titre de chanson ou collez un lien YouTube !",
-                msg_err_not_found: "impossible de trouver une piste pour : {info}",
-                msg_err_long: "la piste est trop longue ! (Elle fait {info}m, la limite est de 15m)",
-                msg_err_cat: "la vidéo trouvée n'est pas de la musique ! (Catégorie : {info}). Essayez d'ajouter 'music'.",
-                msg_err_api: "Erreur des serveurs YouTube. Essayez de coller un lien.",
+                msg_err_empty: "❌ @{user}, entrez un titre de chanson ou collez un lien YouTube !",
+                msg_err_not_found: "❌ @{user}, impossible de trouver une piste pour : {info}",
+                msg_err_long: "❌ @{user}, la piste est trop longue ! (Elle fait {info}m, la limite est de 15m)",
+                msg_err_cat: "❌ @{user}, la vidéo trouvée n'est pas de la musique ! (Catégorie : {info}). Essayez d'ajouter 'music'.",
+                msg_err_api: "❌ @{user}, Erreur des serveurs YouTube. Essayez de coller un lien.",
                 msg_searching: "🔍 @{user}, recherche de la piste...",
                 msg_err_id: "❌ @{user}, impossible de reconnaître l'ID de la piste.",
                 msg_err_yt_read: "❌ @{user}, erreur de lecture depuis YouTube.",
@@ -1028,19 +1182,25 @@
                 ui_search_base: "🔍 Şarkı ara (başlık veya yazar)...",
                 ui_language: "Dil",
                 ui_sr_toggle_title: "İzleyici isteklerini aç / kapat",
-                ui_ws_port: "WebSocket Port",
-                ui_save_reconnect: "Kaydet ve yeniden bağlan",
+                ui_ws_port: "Port",
+                ui_ws_pass: "Şifre (isteğe bağlı)",
+                ui_save_reconnect: "Kaydet ve Bağlan",
                 ui_bot_connecting: "🔴 Bota Bağlanıyor...",
                 ui_bot_connected: "🟢 Bot Bağlandı",
                 ui_bot_disconnected: "🔴 Bot Bağlantısı Kesildi",
+                ui_bot_auth_fail: "🔴 Bot Kimlik Doğrulaması Başarısız!",
                 ui_track_base: "Şarkı Veritabanı",
                 ui_manage_playlists: "📁 Listeleri Yönet",
+                ui_manage_playlists_desc: "Burada birden fazla oynatma listesi ekleyebilir ve silebilirsiniz.",
+                ui_default_playlist_name: "Varsayılan YTM Listesi",
                 ui_api_setup: "API Kurulumu",
                 ui_waiting_start: "Başlangıç bekleniyor",
                 ui_prev: "⏮ ÖNCEKİ",
                 ui_play_pause: "⏯ DURAKLAT / DEVAM ET",
                 ui_stop: "⏹ DURDUR",
                 ui_next: "⏭ SONRAKİ",
+                ui_stop_state: "DURDURULDU",
+                ui_error_skip: "❌ HATA - ATLANAN...",
                 ui_manual_url: "YouTube linkini buraya yapıştırın...",
                 ui_add: "EKLE",
                 ui_queue: "SIRA !SR",
@@ -1052,6 +1212,7 @@
                 ui_sys_logs: "🔧 SİSTEM GÜNLÜKLERİ",
                 ui_changelog_btn: "📜 CHANGELOG",
                 ui_help_btn: "❓ YARDIM",
+                ui_update_btn: "🚀 YENİ GÜNCELLEME: {version}",
                 ui_ban_title: "🔨 Kara Liste",
                 ui_clear_bans: "🧹 TÜM YASAKLARI TEMİZLE",
                 ui_empty_bans: "Yasaklı listesi boş.",
@@ -1059,48 +1220,54 @@
                 ui_playlist_url: "Yeni YT oynatma listesi linki yapıştırın...",
                 ui_empty_playlists: "Kayıtlı liste yok. Yukarıdan ekleyin!",
                 ui_remove: "SİL",
+
+                ui_settings: "⚙️ Ayarlar",
+                ui_general: "Genel",
+                ui_chat_msgs: "Sohbet Mesajları",
+                ui_chat_msgs_desc: "Botun sohbete gönderdiği mesaj metinlerini buradan düzenleyebilirsiniz. Maksimum uzunluk 500 karakterdir. {user} gibi değişkenleri kullanabilirsiniz.",
+
                 ui_api_title: "🔑 Google API Key Kurulumu",
-                ui_api_safe: "🔒 <strong>Verileriniz %100 güvende!</strong> API anahtarınız yalnızca tarayıcınızın belleğinde (Local Storage) yerel olarak saklanır. Asla harici sunuculara gönderilmez (şarkıları getirmek için doğrudan Google hariç).",
+                ui_api_safe: "API anahtarınız yalnızca tarayıcınızın belleğinde saklanır.",
                 ui_api_label: "YouTube Data API v3 Anahtarınız:",
-                ui_api_save: "💾 KAYDET VE KONTROL ET",
+                ui_api_save: "💾 KAYDET",
                 ui_api_show: "👁 GÖSTER",
                 ui_api_hide: "🙈 GİZLE",
                 ui_api_howto_title: "Nereden ücretsiz API anahtarı alabilirim?",
                 ui_api_howto_1: "<a href='https://console.cloud.google.com/' target='_blank' style='color: var(--accent); text-decoration: none; font-weight: bold;'>Google Cloud Console</a>'a giriş yapın.",
-                ui_api_howto_2: "Yeni bir proje oluşturun (veya mevcut olanı seçin).",
-                ui_api_howto_3: "Sol menüde 'API'ler ve Hizmetler' -> 'Kütüphane'ye tıklayın.",
+                ui_api_howto_2: "Yeni bir proje oluşturun.",
+                ui_api_howto_3: "'API'ler ve Hizmetler' -> 'Kütüphane'ye tıklayın.",
                 ui_api_howto_4: "'YouTube Data API v3'ü arayın ve etkinleştirin.",
-                ui_api_howto_5: "'Kimlik Bilgileri' sekmesine gidin -> 'Kimlik bilgisi oluştur' -> 'API anahtarı'.",
+                ui_api_howto_5: "'Kimlik Bilgileri' -> 'Kimlik bilgisi oluştur' -> 'API anahtarı'.",
                 ui_api_howto_6: "Oluşturulan anahtarı kopyalayın ve yukarıdaki alana yapıştırın.",
-                ui_tut_title: "🎓 Eğitim: İlk adımlar ve yapılandırma",
+                
+                ui_tut_title: "🎓 Eğitim: İlk adımlar",
                 ui_tut_1_title: "1. Arayüz ve Özellikler",
-                ui_tut_1_desc: "• <strong>Sol Panel (Temel):</strong> Burada varsayılan oynatma listelerinizden şarkılar bulacaksınız. İzleyici sırası boş olduğunda oynatıcı rastgele bu şarkıları çalar.<br>• <strong>Orta Panel:</strong> !SR anahtarı, port ayarları, API anahtarı ve ana YouTube oynatıcısı.<br>• <strong>Sağ Panel (!SR Sırası):</strong> Twitch'ten izleyici istekleri. Sıralarını kolayca değiştirmek için farenizle şarkıları buraya <strong>sürükleyip bırakabilirsiniz (Drag & Drop)</strong>!",
+                ui_tut_1_desc: "• <strong>Sol Panel (Temel):</strong> İzleyici sırası boş olduğunda oynatıcı rastgele bu şarkıları çalar. Yönetici (📁) üzerinden daha fazla oynatma listesi ekleyebilir veya varsayılanı kaldırabilirsiniz.<br>• <strong>Orta Panel:</strong> Solda Bot ve API durumu, ortada !SR anahtarı, sağda Ayarlar (⚙️) ve ana YouTube oynatıcısı.<br>• <strong>Sağ Panel (!SR Sırası):</strong> İzleyici istekleri. Farenizle şarkıları buraya <strong>sürükleyip bırakabilirsiniz</strong>!",
                 ui_tut_2_title: "2. Streamer.bot'ta HTTP Sunucusu",
-                ui_tut_2_desc_1: "YouTube oynatıcısının ve API'nin engelsiz çalışabilmesi için dosyanın yerel bir HTTP sunucusu üzerinden çalıştırılması gerekir. Bunun için Streamer.bot'taki yerleşik sunucuyu kullanacağız.",
+                ui_tut_2_desc_1: "YouTube oynatıcısının ve API'nin engelsiz çalışabilmesi için dosyanın yerel bir HTTP sunucusu üzerinden çalıştırılması gerekir.",
                 ui_tut_2_desc_2: "Streamer.bot'ta <strong>Servers/Clients</strong> -> <strong>HTTP Server</strong> sekmesine gidin.",
                 ui_tut_2_desc_3: "Portu Ayarlayın:",
                 ui_tut_2_desc_3b: "(önerilen varsayılanı bırakabilirsiniz!)",
                 ui_tut_2_desc_4: "<strong>Mappings</strong> alanında, klasör simgesine tıklayın ve bu HTML dosyasının bulunduğu klasörü gösterin.",
                 ui_tut_2_desc_4b: "PATH alanında sayfa için alt klasör adını belirtin:",
-                ui_tut_2_desc_4c: "(Bu, web sitesi adresinin bir parçası olacak! örn. 'YTM' = http://localhost:7474/YTM)",
+                ui_tut_2_desc_4c: "(örn. 'ytm' = http://localhost:7474/ytm)",
                 ui_tut_2_desc_5: "<strong>Auto Start</strong>ı işaretleyin ve <strong>Start Server</strong>a tıklayın.",
                 ui_tut_3_title: "3. Streamer.bot'ta WebSocket Sunucusu",
-                ui_tut_3_desc_1: "Sohbet komutlarının (!sr, !skip, silme vb.) çalışması için aktif bir WebSocket bağlantısına ihtiyacınız vardır.",
+                ui_tut_3_desc_1: "Sohbet komutlarının çalışması için aktif bir WebSocket bağlantısına ihtiyacınız vardır.",
                 ui_tut_3_desc_2: "<strong>Servers/Clients</strong> -> <strong>WebSockets</strong> -> <strong>Server</strong>a gidin.",
                 ui_tut_3_desc_3: "Portu ayarlayın:",
                 ui_tut_3_desc_3b: "(önerilen varsayılanı bırakabilirsiniz!)",
+                ui_tut_3_desc_pass: "* Burada bir şifre belirlerseniz, Ayarlar (⚙️) menüsüne girmeyi unutmayın!",
                 ui_tut_3_desc_4: "<strong>Auto Start</strong>ı işaretleyin ve <strong>Start Server</strong>a tıklayın.",
-                ui_tut_4_title: "4. Eylemleri Streamer.bot'a Aktarın",
-                ui_tut_4_desc: "Sohbet komutlarının çalışması için Streamer.bot'ta belirli eylem komutlarına ve sıralara ihtiyacınız var.<br><br>1. Streamer.bot'un üst çubuğundaki <strong>Import</strong> düğmesine tıklayın.<br>2. Aşağıdaki kodu kopyalayın, boş <em>Import String</em> alanına yapıştırın ve <strong>Import</strong>a tıklayın.",
+                ui_tut_4_title: "4. Eylemleri İçe Aktarın",
+                ui_tut_4_desc: "1. Streamer.bot'un üst çubuğundaki <strong>Import</strong> düğmesine tıklayın.<br>2. Aşağıdaki kodu kopyalayın, boş <em>Import String</em> alanına yapıştırın ve <strong>Import</strong>a tıklayın.",
                 ui_copy_code: "İçe Aktarma Kodunu Kopyala",
                 ui_tut_5_title: "5. Google API Yapılandırması",
-                ui_tut_5_desc: "Bu pencerenin altındaki düğmeye tıkladıktan sonra, sistemin video verilerini çekmesini sağlayan ücretsiz API anahtarınızı girmeniz istenecektir.<br><br>🔒 <strong>Verileriniz %100 güvende!</strong> API anahtarınız yalnızca tarayıcınızın belleğinde yerel olarak saklanır. Asla harici sunuculara gönderilmez.",
-                ui_tut_done_file: "🔗 Yukarıdaki adımları tamamladıktan sonra ŞİMDİ aşağıdaki sayfaya gidin (bağlantı çalışmazsa buraya geri dönün!):",
+                ui_tut_5_desc: "Bu pencereyi kapattıktan sonra API anahtarınızı Ayarlar (⚙️) menüsünden girebilirsiniz.<br><br>🔒 <strong>Verileriniz %100 güvende!</strong> API anahtarı yalnızca tarayıcınızın belleğinde yerel olarak saklanır.",
+                ui_tut_done_file: "🔗 Yukarıdaki adımları tamamladıktan sonra ŞİMDİ aşağıdaki sayfaya gidin:",
                 ui_tut_done_http: "🔗 Bitti, her şey çalışıyor! Sayfa adresiniz artık:",
                 ui_tut_reminder: "⚠️ Streamer.bot ayarlarının her zaman bu sayfadaki ayarlarla aynı olması gerektiğini unutmayın!",
                 ui_tut_btn_understand: "ANLADIM, DEVAM ET!",
-                ui_tut_btn_api: "ANLADIM, API KUR",
-                ui_tut_btn_close: "ANLADIM, KAPAT",
 
                 msg_sr_on: "Song Request aktif! Şarkı ekle: !sr YouTube linki",
                 msg_sr_off: "Song Request durduruldu!",
@@ -1126,11 +1293,11 @@
                 msg_sr_disabled: "❌ @{user}, !sr istekleri KAPALI.",
                 msg_sr_banned: "❌ @{user}, maalesef bu şarkı yasaklı!",
                 msg_sr_dupe: "❌ @{user}, bu şarkı zaten istendi!",
-                msg_err_empty: "şarkı adı yazın veya YouTube linki yapıştırın!",
-                msg_err_not_found: "şarkı bulunamadı: {info}",
-                msg_err_long: "şarkı çok uzun! ({info}d, sınır 15d)",
-                msg_err_cat: "bulunan video müzik değil! (Kategori: {info}). Aramanıza 'music' kelimesini eklemeyi deneyin.",
-                msg_err_api: "YouTube sunucu hatası. Link yapıştırmayı deneyin.",
+                msg_err_empty: "❌ @{user}, şarkı adı yazın veya YouTube linki yapıştırın!",
+                msg_err_not_found: "❌ @{user}, şarkı bulunamadı: {info}",
+                msg_err_long: "❌ @{user}, şarkı çok uzun! ({info}d, sınır 15d)",
+                msg_err_cat: "❌ @{user}, bulunan video müzik değil! (Kategori: {info}). Aramanıza 'music' kelimesini eklemeyi deneyin.",
+                msg_err_api: "❌ @{user}, YouTube sunucu hatası. Link yapıştırmayı deneyin.",
                 msg_searching: "🔍 @{user}, şarkı aranıyor...",
                 msg_err_id: "❌ @{user}, şarkı ID'si tanınmadı.",
                 msg_err_yt_read: "❌ @{user}, YouTube'dan okuma hatası.",
@@ -1141,10 +1308,16 @@
         };
 
         let currentLang = localStorage.getItem('ytm_lang') || 'en';
+        let customMsgs = JSON.parse(localStorage.getItem('ytm_custom_msgs_' + currentLang)) || {};
 
         function t(key, vars = {}) {
             let dict = i18n[currentLang] || i18n['en'];
+            
             let text = dict[key] || i18n['en'][key] || key;
+            if (key.startsWith('msg_') && customMsgs[key]) {
+                text = customMsgs[key];
+            }
+
             for (let k in vars) {
                 text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), vars[k]);
             }
@@ -1154,10 +1327,15 @@
         function changeLanguage(langCode) {
             currentLang = langCode;
             localStorage.setItem('ytm_lang', langCode);
+            customMsgs = JSON.parse(localStorage.getItem('ytm_custom_msgs_' + currentLang)) || {};
+            
             applyTranslations();
             log(`🌐 Language changed to: ${langCode.toUpperCase()}`);
 
-            // Wymuszenie ponownego połączenia WS po zmianie języka
+            if(document.getElementById('settings-modal').style.display === 'flex') {
+                renderSettingsMessages();
+            }
+
             if(ws) {
                 ws.onclose = null; 
                 ws.close();
@@ -1167,22 +1345,19 @@
         }
 
         function applyTranslations() {
-            document.getElementById('lang-select').value = currentLang;
+            if(document.getElementById('lang-select')) document.getElementById('lang-select').value = currentLang;
+            if(document.getElementById('tut-lang-select')) document.getElementById('tut-lang-select').value = currentLang;
             
-            // HTML nodes
-            document.querySelectorAll('[data-i18n]').forEach(el => {
-                el.innerHTML = t(el.getAttribute('data-i18n'));
-            });
-            // Placeholders
-            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-                el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
-            });
-            // Titles
-            document.querySelectorAll('[data-i18n-title]').forEach(el => {
-                el.title = t(el.getAttribute('data-i18n-title'));
-            });
+            document.querySelectorAll('[data-i18n]').forEach(el => { el.innerHTML = t(el.getAttribute('data-i18n')); });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
+            document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.getAttribute('data-i18n-title')); });
 
-            // Re-render dynamic elements
+            // UPDATE BUTTON DYNAMIC TRANSLATION:
+            const updateBtn = document.getElementById('update-btn');
+            if (updateBtn && updateBtn.getAttribute('data-version')) {
+                updateBtn.innerText = t('ui_update_btn', {version: updateBtn.getAttribute('data-version')});
+            }
+
             renderBaseList();
             renderQueue();
             if(document.getElementById('ban-modal').style.display === 'flex') renderBanList();
@@ -1190,7 +1365,6 @@
             
             updateApiStatusUI(document.getElementById('api-status-icon').getAttribute('data-last-status') || 'init');
             
-            // Update Start Button
             if (!document.getElementById('btn-run').disabled) {
                 document.getElementById('btn-run').innerText = masterList.length > 0 ? t('ui_btn_start_active') : t('ui_btn_start_error');
             } else {
@@ -1204,10 +1378,11 @@
         // =========================================================================
         let API_KEY = localStorage.getItem('ytm_api_key') || ''; 
         let WS_PORT = localStorage.getItem('ytm_ws_port') || '8080';
+        let WS_PASS = localStorage.getItem('ytm_ws_pass') || '';
         // =========================================================================
         
         let player, ws, wsReconnectTimeout;
-        let masterList = [];    
+        let masterList = [];   
         let playQueue = [];     
         let playHistory = [];   
         let currentSongInfo = null; 
@@ -1216,17 +1391,119 @@
         let isSrEnabled = false; 
 
         document.getElementById('ws-port-input').value = WS_PORT;
+        document.getElementById('ws-pass-input').value = WS_PASS;
         document.getElementById('tut-ws-port').value = WS_PORT; 
         
-        // Inicjalizacja języka przy starcie
-        window.onload = () => { applyTranslations(); };
+        window.onload = () => { 
+            applyTranslations(); 
+            checkGithubUpdates(); 
+        };
+
+        // ===================== SETTINGS MODAL =====================
+        function openSettings() { 
+            document.getElementById('api-key-input').value = API_KEY;
+            renderSettingsMessages();
+            document.getElementById('settings-modal').style.display = 'flex'; 
+        }
+        function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
+        
+        function switchSettingsTab(tabName) {
+            document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
+            document.getElementById(`tab-btn-${tabName}`).classList.add('active');
+            document.getElementById(`tab-content-${tabName}`).classList.add('active');
+        }
+
+        function getVarsDesc(key) {
+            let text = i18n['en'][key];
+            let vars = text.match(/\{[a-zA-Z0-9_]+\}/g) || [];
+            return [...new Set(vars)].join(' ');
+        }
+
+        function renderSettingsMessages() {
+            let html = '';
+            let keys = Object.keys(i18n['en']).filter(k => k.startsWith('msg_'));
+            
+            keys.forEach(k => {
+                let defaultTxt = i18n[currentLang][k] || i18n['en'][k];
+                let currentTxt = customMsgs[k] !== undefined ? customMsgs[k] : defaultTxt;
+                let vars = getVarsDesc(k);
+                
+                html += `
+                <div class="msg-setting-item">
+                    <div class="msg-setting-header">
+                        <span class="msg-key">${k}</span>
+                        <span class="msg-vars">${vars}</span>
+                    </div>
+                    <div class="msg-setting-body">
+                        <input type="text" id="msg_input_${k}" value="${currentTxt.replace(/"/g, '&quot;')}" maxlength="500">
+                        <button class="btn-msg-action" onclick="saveCustomMsg('${k}')" title="Save">💾</button>
+                        <button class="btn-msg-action btn-msg-reset" onclick="resetCustomMsg('${k}')" title="Restore Default">🔄</button>
+                    </div>
+                </div>`;
+            });
+            document.getElementById('msg-settings-list').innerHTML = html;
+        }
+
+        function saveCustomMsg(key) {
+            const val = document.getElementById(`msg_input_${key}`).value.trim();
+            if(val === '') return;
+            customMsgs[key] = val;
+            localStorage.setItem('ytm_custom_msgs_' + currentLang, JSON.stringify(customMsgs));
+            log(`💾 Saved custom message for: ${key}`, "normal");
+            
+            const btn = document.querySelector(`button[onclick="saveCustomMsg('${key}')"]`);
+            let oldText = btn.innerHTML;
+            btn.innerHTML = "✅";
+            setTimeout(() => { btn.innerHTML = oldText; }, 1000);
+        }
+
+        function resetCustomMsg(key) {
+            delete customMsgs[key];
+            localStorage.setItem('ytm_custom_msgs_' + currentLang, JSON.stringify(customMsgs));
+            document.getElementById(`msg_input_${key}`).value = i18n[currentLang][key] || i18n['en'][key];
+            log(`🔄 Reset custom message for: ${key}`, "normal");
+        }
+
+        function saveWsConfig() {
+            const newPort = document.getElementById('ws-port-input').value.trim();
+            const newPass = document.getElementById('ws-pass-input').value.trim();
+            
+            if(newPort && !isNaN(newPort)) {
+                WS_PORT = newPort;
+                WS_PASS = newPass;
+                localStorage.setItem('ytm_ws_port', WS_PORT);
+                localStorage.setItem('ytm_ws_pass', WS_PASS);
+                document.getElementById('tut-ws-port').value = WS_PORT; 
+                log(`🔌 WS Port: ${WS_PORT} | Pass: ${WS_PASS ? 'YES' : 'NO'}`, "warn");
+                
+                if(ws) {
+                    ws.onclose = null; 
+                    ws.close();
+                    clearTimeout(wsReconnectTimeout);
+                    connectWebsocket();
+                }
+            }
+        }
+        // ====================================================================
 
         function updateApiStatusUI(status) {
             const icon = document.getElementById('api-status-icon');
-            icon.setAttribute('data-last-status', status);
-            if(status === 'ok') icon.innerText = '🟢';
-            else if (status === 'error') icon.innerText = '🔴';
-            else icon.innerText = '⚪';
+            const uiIcon = document.getElementById('api-status-ui');
+            if(icon) icon.setAttribute('data-last-status', status);
+            
+            if(status === 'ok') { 
+                if(icon) { icon.innerText = '🟢 API OK'; icon.style.color = '#00ff88'; }
+                if(uiIcon) { uiIcon.innerText = '🟢 API OK'; uiIcon.style.color = '#00ff88'; }
+            }
+            else if (status === 'error') { 
+                if(icon) { icon.innerText = '🔴 API ERROR'; icon.style.color = 'var(--red)'; }
+                if(uiIcon) { uiIcon.innerText = '🔴 API ERROR'; uiIcon.style.color = 'var(--red)'; }
+            }
+            else { 
+                if(icon) { icon.innerText = '⚪ API UNKNOWN'; icon.style.color = '#aaa'; }
+                if(uiIcon) { uiIcon.innerText = '⚪ API UNKNOWN'; uiIcon.style.color = '#aaa'; }
+            }
         }
 
         async function verifyApiKey(key) {
@@ -1249,28 +1526,11 @@
         function checkApiSetup() {
             if (!API_KEY || API_KEY.trim() === '') {
                 updateApiStatusUI('error');
-                openApiSetup(true); 
+                openSettings(); 
                 document.getElementById('btn-run').innerText = t('ui_btn_start_req');
                 return false;
             }
             return true;
-        }
-
-        function openApiSetup(isInitial = false) {
-            document.getElementById('api-key-input').value = API_KEY;
-            document.getElementById('api-modal').style.display = 'flex';
-            
-            const closeBtn = document.getElementById('api-close-btn');
-            if (isInitial && (!API_KEY || API_KEY === '')) closeBtn.style.display = 'none';
-            else closeBtn.style.display = 'block';
-        }
-
-        function closeApiSetup(forceCheck = false) {
-            if (forceCheck && (!API_KEY || API_KEY.trim() === '')) {
-                alert("API KEY IS REQUIRED!");
-                return;
-            }
-            document.getElementById('api-modal').style.display = 'none';
         }
 
         async function saveApiKey() {
@@ -1283,9 +1543,7 @@
             if (isValid) {
                 API_KEY = inputVal;
                 localStorage.setItem('ytm_api_key', API_KEY);
-                closeApiSetup();
                 log("🔑 API Key Verified.");
-
                 if (player && typeof player.getPlayerState === 'function') fetchFullPlaylistFromAPI();
                 else document.getElementById('btn-run').innerText = t('ui_btn_downloading');
             } else {
@@ -1300,25 +1558,9 @@
             else { input.type = 'password'; btn.innerText = t('ui_api_show'); }
         }
 
-        function saveWsPort() {
-            const newPort = document.getElementById('ws-port-input').value.trim();
-            if(newPort && !isNaN(newPort)) {
-                WS_PORT = newPort;
-                localStorage.setItem('ytm_ws_port', WS_PORT);
-                document.getElementById('tut-ws-port').value = WS_PORT; 
-                log(`🔌 WS Port: ${WS_PORT}`, "warn");
-                if(ws) {
-                    ws.onclose = null; 
-                    ws.close();
-                    clearTimeout(wsReconnectTimeout);
-                    connectWebsocket();
-                }
-            }
-        }
-
         function updateTutLink() {
             let hp = document.getElementById('tut-http-port').value.trim() || '7474';
-            let folder = document.getElementById('tut-folder').value.trim() || 'YTM';
+            let folder = document.getElementById('tut-folder').value.trim() || 'ytm';
             let wp = document.getElementById('tut-ws-port').value.trim() || '8080';
             
             folder = folder.replace(/^\/+|\/+$/g, '');
@@ -1328,43 +1570,37 @@
             let a = document.getElementById('tut-final-link');
             if(a) { a.href = url; a.innerText = url; }
             
-            document.getElementById('ws-port-input').value = wp;
-            
-            // Logika wyświetlania i ukrywania przycisku na podstawie protokołu
             let doneTextEl = document.getElementById('tut-done-text');
             let closeBtn = document.getElementById('tut-close-btn');
             
             if (window.location.protocol === 'file:') {
                 if(doneTextEl) doneTextEl.innerHTML = t('ui_tut_done_file');
-                if(closeBtn) closeBtn.style.display = 'none'; // Całkowicie ukrywamy przycisk
+                if(closeBtn) closeBtn.style.display = 'none'; 
             } else {
                 if(doneTextEl) doneTextEl.innerHTML = t('ui_tut_done_http');
                 if(closeBtn) {
-                    closeBtn.style.display = 'inline-block'; // Pokazujemy przycisk
-                    closeBtn.classList.add('btn-pulse');     // Dodajemy animację pulsowania
+                    closeBtn.style.display = 'inline-block'; 
+                    closeBtn.classList.add('btn-pulse');     
                 }
             }
         }
 
         function openTutorial() { 
             updateTutLink(); 
-            const btn = document.getElementById('tut-close-btn');
-            if (!localStorage.getItem('ytm_tutorial_seen') || !API_KEY) {
-                btn.innerText = t('ui_tut_btn_api');
-            } else {
-                btn.innerText = t('ui_tut_btn_close');
-            }
             document.getElementById('tutorial-modal').style.display = 'flex'; 
         }
         
         function closeTutorial() {
             const currentWp = document.getElementById('tut-ws-port').value.trim();
-            if(currentWp !== WS_PORT && !isNaN(currentWp)) saveWsPort(); 
+            if(currentWp !== WS_PORT && !isNaN(currentWp)) {
+                document.getElementById('ws-port-input').value = currentWp;
+                saveWsConfig();
+            }
 
             localStorage.setItem('ytm_tutorial_seen', 'true');
             document.getElementById('tutorial-modal').style.display = 'none';
 
-            if (!API_KEY || API_KEY.trim() === '') openApiSetup(true);
+            if (!API_KEY || API_KEY.trim() === '') openSettings();
         }
 
         function openChangelog() { document.getElementById('changelog-modal').style.display = 'flex'; }
@@ -1379,12 +1615,9 @@
             });
         }
 
-        let savedPlaylists = JSON.parse(localStorage.getItem('ytm_base_playlists')) || [
-            { id: 'PL9O6SbAVrliMxCJ-40pYLNZHXFYYZ5SiC', title: 'YTM Playlist' }
-        ];
-
-        if (savedPlaylists.length > 0 && typeof savedPlaylists[0] === 'string') {
-            savedPlaylists = savedPlaylists.map(id => ({ id: id, title: `Playlista: ${id}` }));
+        let savedPlaylists = JSON.parse(localStorage.getItem('ytm_base_playlists')) || [];
+        if (savedPlaylists.length === 0) {
+            savedPlaylists = [{ id: 'PL9O6SbAVrliMxCJ-40pYLNZHXFYYZ5SiC', title: 'default_ytm' }];
             localStorage.setItem('ytm_base_playlists', JSON.stringify(savedPlaylists));
         }
 
@@ -1440,12 +1673,14 @@
                 container.innerHTML = `<div style="text-align:center; color:#888; padding: 20px;">${t('ui_empty_playlists')}</div>`;
                 return;
             }
-            container.innerHTML = savedPlaylists.map((p, i) => `
+            container.innerHTML = savedPlaylists.map((p, i) => {
+                let displayTitle = (p.id === 'PL9O6SbAVrliMxCJ-40pYLNZHXFYYZ5SiC' && (p.title === 'default_ytm' || p.title.includes('Domyślna') || p.title.includes('Default'))) ? t('ui_default_playlist_name') : p.title;
+                return `
                 <div class="modal-item playlist-style">
-                    <div class="modal-item-title" title="${p.id}">🎵 ${p.title}</div>
+                    <div class="modal-item-title" title="${p.id}">🎵 ${displayTitle}</div>
                     <button class="btn-modal-action danger" onclick="removeBasePlaylist(${i})">${t('ui_remove')}</button>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         let bannedSongs = JSON.parse(localStorage.getItem('ytm_banned_songs')) || [];
@@ -1562,12 +1797,12 @@
             isSrEnabled = document.getElementById('sr-toggle-cb').checked;
             const textEl = document.getElementById('sr-status-text');
             if (isSrEnabled) {
-                textEl.innerText = "!SR ON";
+                textEl.innerText = " !SR ON";
                 textEl.style.color = "#00ff88";
                 textEl.style.textShadow = "0 0 10px rgba(0,255,136,0.5)";
                 if(!skipMsg) sendChatMessage(t('msg_sr_on'));
             } else {
-                textEl.innerText = "!SR OFF";
+                textEl.innerText = " !SR OFF";
                 textEl.style.color = "var(--red)";
                 textEl.style.textShadow = "0 0 5px rgba(0,0,0,0.5)";
                 if(!skipMsg) sendChatMessage(t('msg_sr_off'));
@@ -1590,7 +1825,7 @@
 
         function onPlayerError(e) {
             log(`⚠️ YT Error (${e.data}). Skip in 3s...`, "error");
-            document.getElementById('now-playing-title').innerText = "❌ ERROR - SKIPPING...";
+            document.getElementById('now-playing-title').innerText = t('ui_error_skip');
             
             setTimeout(() => {
                 if (currentSongInfo && currentSongInfo.user !== "Auto") sendChatMessage(t('msg_bot_blocked', {user: currentSongInfo.user}));
@@ -1610,7 +1845,7 @@
                 else {
                     log("⚠️ API Key error.", "error");
                     document.getElementById('btn-run').innerText = t('ui_btn_start_error');
-                    openApiSetup();
+                    openSettings();
                 }
             }
         }
@@ -1641,7 +1876,7 @@
                             if (data.error.code === 400 || data.error.code === 403) {
                                 document.getElementById('btn-run').innerText = t('ui_btn_start_error');
                                 updateApiStatusUI('error');
-                                openApiSetup();
+                                openSettings();
                                 return; 
                             }
                             break; 
@@ -1717,7 +1952,7 @@
 
         function onPlayerStateChange(e) {
             if (e.data === 0) playNext(); 
-            if (e.data === 1) {           
+            if (e.data === 1) {            
                 document.getElementById('now-playing-title').innerText = currentSongInfo.title;
                 document.getElementById('now-playing-meta').innerText = currentSongInfo.user === "Auto" ? `Auto` : `👤 ${currentSongInfo.user}`;
             }
@@ -1741,7 +1976,7 @@
         
         function stopSongUI() { 
             player.stopVideo(); 
-            document.getElementById('now-playing-title').innerText = "STOP"; 
+            document.getElementById('now-playing-title').innerText = t('ui_stop_state'); 
         }
 
         function playFromChat(user) {
@@ -1780,7 +2015,7 @@
         function stopFromChat(user) {
             if (currentSongInfo && player.getPlayerState() !== 5) {
                 player.stopVideo();
-                document.getElementById('now-playing-title').innerText = "STOP";
+                document.getElementById('now-playing-title').innerText = t('ui_stop_state');
                 sendChatMessage(t('msg_stopped', {user: user}));
             } else {
                 sendChatMessage(t('msg_nothing_playing', {user: user}));
@@ -2036,16 +2271,34 @@
         function connectWebsocket() {
             ws = new WebSocket(`ws://localhost:${WS_PORT}/`);
             ws.onopen = () => { 
-                document.getElementById('status').innerText = t('ui_bot_connected');
-                document.getElementById('status').style.color = "#00ff88";
-                ws.send(JSON.stringify({"request": "Subscribe", "events": {"General": ["Custom"]}, "id": "Sub"}));
+                if (WS_PASS) {
+                    ws.send(JSON.stringify({ "request": "Authenticate", "password": WS_PASS, "id": "auth" }));
+                } else {
+                    document.getElementById('status').innerText = t('ui_bot_connected');
+                    document.getElementById('status').style.color = "#00ff88";
+                    ws.send(JSON.stringify({"request": "Subscribe", "events": {"General": ["Custom"]}, "id": "Sub"}));
+                }
             };
             ws.onmessage = (e) => {
                 const rawData = e.data.toString();
                 if (rawData.includes('"request":"Hello"') || rawData.includes('"id":"Sub"')) return;
                 try {
-                    let inner = null;
                     const raw = JSON.parse(rawData);
+                    
+                    if (raw.id === "auth") {
+                        if (raw.status === "ok") {
+                            document.getElementById('status').innerText = t('ui_bot_connected');
+                            document.getElementById('status').style.color = "#00ff88";
+                            ws.send(JSON.stringify({"request": "Subscribe", "events": {"General": ["Custom"]}, "id": "Sub"}));
+                        } else {
+                            document.getElementById('status').innerText = t('ui_bot_auth_fail');
+                            document.getElementById('status').style.color = "var(--red)";
+                            log("🔴 WebSocket Authentication Failed!", "error");
+                        }
+                        return;
+                    }
+
+                    let inner = null;
                     if (raw.data && typeof raw.data === 'object' && raw.data.data) inner = JSON.parse(raw.data.data);
                     else if (raw.type) inner = raw;
 
@@ -2071,13 +2324,13 @@
                         else if (inner.type === "STOP_SONG") stopFromChat(inner.user);
 
                         else if (inner.type === "SR_ERROR") {
-                            let msg = `❌ @${inner.user}, `;
+                            let msg = "";
                             switch(inner.errorCode) {
-                                case "EMPTY_INPUT": msg += t('msg_err_empty'); break;
-                                case "NOT_FOUND": msg += t('msg_err_not_found', {info: inner.extraInfo}); break;
-                                case "TOO_LONG": msg += t('msg_err_long', {info: Math.floor(parseInt(inner.extraInfo)/60)}); break;
-                                case "NOT_MUSIC": msg += t('msg_err_cat', {info: inner.extraInfo}); break;
-                                case "API_ERROR": msg += t('msg_err_api'); break;
+                                case "EMPTY_INPUT": msg += t('msg_err_empty', {user: inner.user}); break;
+                                case "NOT_FOUND": msg += t('msg_err_not_found', {user: inner.user, info: inner.extraInfo}); break;
+                                case "TOO_LONG": msg += t('msg_err_long', {user: inner.user, info: Math.floor(parseInt(inner.extraInfo)/60)}); break;
+                                case "NOT_MUSIC": msg += t('msg_err_cat', {user: inner.user, info: inner.extraInfo}); break;
+                                case "API_ERROR": msg += t('msg_err_api', {user: inner.user}); break;
                             }
                             sendChatMessage(msg);
                         }
