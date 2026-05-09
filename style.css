@@ -58,7 +58,7 @@
         .np-card-progress { position: absolute; left: 10px; right: 10px; bottom: 6px; height: 5px; background: rgba(var(--np-soft-ink-rgb), 0.22); border-radius: 999px; overflow: hidden; }
         .np-card-progress-fill { width: 0%; height: 100%; background: var(--np-soft-ink); border-radius: inherit; transition: width 0.25s linear; }
         .np-card-user { position: absolute; right: 11px; top: 11px; max-width: 70px; color: #d6dce5; background: rgba(11, 13, 17, 0.42); border: 1px solid rgba(255,255,255,0.1); border-radius: 999px; padding: 2px 7px; font-size: 0.62em; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .np-card-ban { position: absolute; right: 15px; bottom: 60px; background: rgba(0,0,0,0.28); color: var(--gold); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 6px; cursor: pointer; transition: 0.2s; }
+        .np-card-ban { position: absolute; right: 15px; bottom: 100px; background: rgba(0,0,0,0.28); color: var(--gold); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 6px; cursor: pointer; transition: 0.2s; }
         .np-card-ban:hover { background: rgba(255, 204, 0, 0.18); transform: scale(1.05); }
         @keyframes np-wave { 0%, 100% { transform: scaleY(0.76); opacity: 0.62; } 42% { transform: scaleY(1.04); opacity: 0.84; } 73% { transform: scaleY(0.88); opacity: 0.72; } }
 
