@@ -276,7 +276,7 @@ setInterval(readStorageState, 500);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.1";
+        const CURRENT_VERSION = "v1.2.1TEST!";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
