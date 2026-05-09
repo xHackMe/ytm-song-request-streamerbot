@@ -10,7 +10,7 @@ A dynamic, self-hosted YouTube Music player and Song Request system built specif
 * **Multi-language Support:** UI and Bot chat responses are available in English, Polish, German, French, and Turkish.
 * **Chat Commands:** Support for standard SR commands (`!sr [link/title]`, `!skip`, `!wrongsong`, `!volume`).
 * **Auto-Skip:** Automatically skips unavailable, blocked, or deleted videos.
-* **Compact widget for OBS.
+* **Compact widget for OBS:** A standalone floating widget that displays the title and progress of the currently playing song. Perfect for adding to OBS! It uses Web Socket to refresh the status live.
 
 ## 📥 Installation & Setup
 
