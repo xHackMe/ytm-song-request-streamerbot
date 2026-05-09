@@ -1,3 +1,5 @@
+# **This is a test version! UNSTABLE! Some features may only work partially or not at all.**
+
 # 🎵 YTM Song Request for Streamer.bot (v1.2.1)
 
 A dynamic, self-hosted YouTube Music player and Song Request system built specifically for Streamer.bot. This system runs locally in your browser, uses your own Google API key (no third-party server dependencies), and communicates directly with your chat via Streamer.bot's built-in WebSockets.
