@@ -5,8 +5,17 @@ const root = document.getElementById('widget-root');
 const widgetParams = new URLSearchParams(window.location.search || '');
 const WIDGET_WS_PORT = widgetParams.get('port') || widgetParams.get('wsPort') || '8080';
 const WIDGET_WS_PASS = widgetParams.get('pass') || widgetParams.get('password') || widgetParams.get('wsPass') || '';
+const WIDGET_LANG = widgetParams.get('lang') || widgetParams.get('language') || '';
+const WIDGET_STALE_MS = 3500;
+const WIDGET_AUTO_HIDE_MS = 30000;
 let lastPayload = '';
 let activeWidgetSongKey = '';
+let lastWidgetStateAt = 0;
+let lastWidgetPlayableState = null;
+let widgetAutoHideTimeout = null;
+let widgetAutoHideMode = '';
+let widgetHiddenReason = '';
+let widgetStatusKey = '';
 let widgetWs = null;
 let widgetWsReconnectTimeout = null;
 
@@ -32,6 +41,86 @@ function formatTime(totalSeconds) {
     return minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
 }
 
+const coverThemeCache = new Map();
+
+function normalizeCoverThemeColor(color) {
+    const luma = (color.r * 0.2126) + (color.g * 0.7152) + (color.b * 0.0722);
+    let mixTarget = null;
+    let mixAmount = 0;
+
+    if (luma < 58) {
+        mixTarget = { r: 125, g: 135, b: 145 };
+        mixAmount = 0.38;
+    } else if (luma > 178) {
+        mixTarget = { r: 64, g: 68, b: 74 };
+        mixAmount = 0.42;
+    }
+
+    if (!mixTarget) return color;
+    return {
+        r: Math.round(color.r * (1 - mixAmount) + mixTarget.r * mixAmount),
+        g: Math.round(color.g * (1 - mixAmount) + mixTarget.g * mixAmount),
+        b: Math.round(color.b * (1 - mixAmount) + mixTarget.b * mixAmount)
+    };
+}
+
+function readAverageCoverColor(src) {
+    if (!src) return Promise.reject(new Error('No cover source'));
+    if (coverThemeCache.has(src)) return Promise.resolve(coverThemeCache.get(src));
+
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const size = 24;
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(image, 0, 0, size, size);
+
+                const data = ctx.getImageData(0, 0, size, size).data;
+                let r = 0;
+                let g = 0;
+                let b = 0;
+                let count = 0;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    if (data[i + 3] < 32) continue;
+                    r += data[i];
+                    g += data[i + 1];
+                    b += data[i + 2];
+                    count += 1;
+                }
+
+                if (!count) throw new Error('No readable cover pixels');
+                const color = normalizeCoverThemeColor({
+                    r: Math.round(r / count),
+                    g: Math.round(g / count),
+                    b: Math.round(b / count)
+                });
+                coverThemeCache.set(src, color);
+                resolve(color);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        image.onerror = reject;
+        image.src = src;
+    });
+}
+
+function applyCoverThemeToNowPlayingCard(card, src) {
+    if (!card || !src) return;
+    card.dataset.coverThemeSrc = src;
+
+    readAverageCoverColor(src).then(color => {
+        if (card.dataset.coverThemeSrc !== src) return;
+        card.style.setProperty('--np-cover-rgb', color.r + ', ' + color.g + ', ' + color.b);
+    }).catch(() => {});
+}
+
 function getNowPlayingWaveBarHeight(index) {
     const height = 55 + Math.sin(index * 0.83) * 11 + Math.sin(index * 1.71 + 0.9) * 8 + Math.sin(index * 0.29 + 2.4) * 6;
     return Math.round(Math.min(78, Math.max(34, height)));
@@ -45,10 +134,40 @@ function getNowPlayingWaveBarCount(width) {
 function createNowPlayingWaveBars(count = 28) {
     return Array.from({ length: count }, (_, index) => {
         const height = getNowPlayingWaveBarHeight(index);
-        const delay = -(((index * 0.37) % 4.8)).toFixed(3);
+        const stagger = (index * 0.026).toFixed(3);
+        const skipStagger = ((((index * 37) % 29) * 0.006) + (((index * 11) % 5) * 0.002)).toFixed(3);
+        const skipX = ((index % 2 ? -1 : 1) * (4 + (index % 4))).toFixed(1) + 'px';
+        const skipXAlt = ((index % 2 ? 1 : -1) * (3 + (index % 5))).toFixed(1) + 'px';
+        const skipXSoft = ((index % 2 ? -1 : 1) * (1.5 + (index % 3))).toFixed(1) + 'px';
         const duration = (2.45 + ((index * 7) % 11) * 0.09).toFixed(2);
-        return '<i style="--bar-height: ' + height + '%; --bar-delay: ' + delay + 's; --bar-duration: ' + duration + 's"></i>';
+        return '<i style="--bar-height: ' + height + '%; --bar-stagger: ' + stagger + 's; --bar-skip-stagger: ' + skipStagger + 's; --bar-skip-x: ' + skipX + '; --bar-skip-x-alt: ' + skipXAlt + '; --bar-skip-x-soft: ' + skipXSoft + '; --bar-duration: ' + duration + 's"></i>';
     }).join('');
+}
+
+function seededNowPlayingRandom(seed, index, salt = 0) {
+    const numericSeed = Number(seed) || 1;
+    const value = Math.sin((numericSeed * 12.9898) + (index * 78.233) + (salt * 37.719)) * 43758.5453;
+    return value - Math.floor(value);
+}
+
+function randomizeNowPlayingSkipBars(waveEl, seed) {
+    if (!waveEl) return;
+    const bars = Array.from(waveEl.querySelectorAll('i'));
+    const ordered = bars
+        .map((bar, index) => ({ bar, index, order: seededNowPlayingRandom(seed, index, 1) }))
+        .sort((a, b) => a.order - b.order);
+
+    ordered.forEach(({ bar, index }, rank) => {
+        const jitter = seededNowPlayingRandom(seed, index, 2);
+        const direction = seededNowPlayingRandom(seed, index, 3) > 0.5 ? 1 : -1;
+        const strength = 4 + Math.round(seededNowPlayingRandom(seed, index, 4) * 5);
+        const reverseStrength = 3 + Math.round(seededNowPlayingRandom(seed, index, 5) * 4);
+
+        bar.style.setProperty('--bar-skip-stagger', (rank * 0.0019 + jitter * 0.014).toFixed(3) + 's');
+        bar.style.setProperty('--bar-skip-x', (direction * strength).toFixed(1) + 'px');
+        bar.style.setProperty('--bar-skip-x-alt', (-direction * reverseStrength).toFixed(1) + 'px');
+        bar.style.setProperty('--bar-skip-x-soft', (direction * strength * 0.35).toFixed(1) + 'px');
+    });
 }
 
 function syncNowPlayingWaveBars(waveEl) {
@@ -61,10 +180,92 @@ function syncNowPlayingWaveBars(waveEl) {
     }
 }
 
-function renderEmpty() {
+function getWidgetLanguage() {
+    if (WIDGET_LANG) return WIDGET_LANG;
+
+    try {
+        return localStorage.getItem('ytm_lang') || document.documentElement.lang || 'en';
+    } catch (error) {
+        return 'en';
+    }
+}
+
+function widgetT(key) {
+    const fallback = {
+        ui_widget_waiting_player: 'Waiting for player connection...'
+    };
+
+    try {
+        if (typeof i18n !== 'undefined') {
+            const lang = getWidgetLanguage();
+            const dict = i18n[lang] || i18n.en || {};
+            return dict[key] || (i18n.en && i18n.en[key]) || fallback[key] || key;
+        }
+    } catch (error) {}
+
+    return fallback[key] || key;
+}
+
+function clearWidgetAutoHide() {
+    clearTimeout(widgetAutoHideTimeout);
+    widgetAutoHideTimeout = null;
+    widgetAutoHideMode = '';
+    widgetHiddenReason = '';
+}
+
+function showWidgetNow() {
+    clearWidgetAutoHide();
+    root.classList.add('is-widget-visible');
+    root.classList.remove('is-widget-hidden');
+}
+
+function shouldKeepWidgetSilent(mode) {
+    if (!root.classList.contains('is-widget-hidden')) return false;
+    if (!widgetHiddenReason) return false;
+    if (widgetHiddenReason === mode) return true;
+    return ['paused', 'stopped', 'empty'].includes(widgetHiddenReason);
+}
+
+function showWidgetTemporarily(mode) {
+    if (shouldKeepWidgetSilent(mode)) return false;
+
+    root.classList.add('is-widget-visible');
+    root.classList.remove('is-widget-hidden');
+    widgetHiddenReason = '';
+
+    if (widgetAutoHideMode === mode && widgetAutoHideTimeout) return true;
+
+    clearTimeout(widgetAutoHideTimeout);
+    widgetAutoHideMode = mode;
+    widgetAutoHideTimeout = setTimeout(() => {
+        root.classList.add('is-widget-hidden');
+        widgetHiddenReason = mode;
+        widgetAutoHideTimeout = null;
+    }, WIDGET_AUTO_HIDE_MS);
+    return true;
+}
+
+function renderWidgetStatus(messageKey, mode = 'connection') {
+    if (shouldKeepWidgetSilent(mode)) return;
+
     activeWidgetSongKey = '';
     if (widgetResizeObserver) widgetResizeObserver.disconnect();
-    root.innerHTML = '';
+
+    const message = escapeHtml(widgetT(messageKey));
+    const statusEl = root.querySelector('.widget-status');
+
+    if (!statusEl || widgetStatusKey !== messageKey) {
+        root.innerHTML = '<div class="widget-status" role="status">' + message + '</div>';
+    } else {
+        statusEl.innerHTML = message;
+    }
+
+    widgetStatusKey = messageKey;
+    showWidgetTemporarily(mode);
+}
+
+function renderEmpty() {
+    renderWidgetStatus('ui_widget_waiting_player', 'empty');
 }
 
 function getWidgetSongKey(state) {
@@ -83,14 +284,33 @@ function updateWidgetCardState(state, progress) {
     const durationEl = document.getElementById('widget-now-playing-duration');
     const progressEl = document.getElementById('widget-now-playing-progress');
     const waveEl = document.getElementById('widget-now-playing-wave');
+    const isSkipEffect = state.waveEffect === 'skip';
+    const isFadeEffect = state.waveEffect === 'fade';
+    const isWaveHeld = !!state.waveHold && !isSkipEffect;
 
-    if (card) card.classList.toggle('is-playing', !!state.isPlaying);
     if (currentEl) currentEl.innerText = formatTime(state.currentTime);
     if (durationEl) durationEl.innerText = formatTime(state.duration);
     if (progressEl) progressEl.style.width = progress + '%';
     if (waveEl) {
         waveEl.style.setProperty('--np-progress', progress + '%');
         syncNowPlayingWaveBars(waveEl);
+    }
+    if (card) {
+        const skipEffectId = String(state.waveEffectId || (isSkipEffect ? state.updatedAt || Date.now() : ''));
+        if (isSkipEffect && card.dataset.skipEffectId !== skipEffectId) {
+            card.dataset.skipEffectId = skipEffectId;
+            randomizeNowPlayingSkipBars(waveEl, skipEffectId);
+            card.classList.remove('is-skipping');
+            void card.offsetWidth;
+        } else if (!isSkipEffect) {
+            card.dataset.skipEffectId = '';
+        }
+
+        card.classList.toggle('is-playing', !!state.isPlaying && !state.waveEnding && !isSkipEffect && !isFadeEffect && !isWaveHeld);
+        card.classList.toggle('is-wave-ending', !!state.waveEnding);
+        card.classList.toggle('is-skipping', isSkipEffect);
+        card.classList.toggle('is-wave-fading', isFadeEffect);
+        card.classList.toggle('is-wave-held', isWaveHeld);
     }
     queueWidgetTextFit();
 }
@@ -133,26 +353,55 @@ function observeWidgetCard() {
 
 function renderState(state) {
     if (!state || !state.hasSong || state.isStopped) {
-        renderEmpty();
+        if (state && state.isStopped && lastWidgetPlayableState && document.getElementById('widget-now-playing-card')) {
+            if (shouldKeepWidgetSilent('stopped')) return;
+
+            const stoppedState = {
+                ...lastWidgetPlayableState,
+                isPlaying: false,
+                waveEnding: false,
+                waveEffect: 'fade'
+            };
+            const progress = Math.min(100, Math.max(0, stoppedState.progress || 0));
+            updateWidgetCardState(stoppedState, progress);
+            showWidgetTemporarily('stopped');
+            return;
+        }
+
+        renderWidgetStatus('ui_widget_waiting_player', state && state.isStopped ? 'stopped' : 'empty');
         return;
     }
+
+    lastWidgetPlayableState = { ...state };
+    widgetStatusKey = '';
 
     const title = escapeHtml(state.title || 'Unknown Title');
     const author = escapeHtml(cleanAuthorName(state.author || 'YouTube'));
     const user = state.user === 'Auto' ? 'Auto' : escapeHtml(state.user || 'Viewer');
-    const thumbnail = escapeHtml(state.thumbnail || (state.id ? 'https://i.ytimg.com/vi/' + state.id + '/mqdefault.jpg' : ''));
+    const thumbnailUrl = state.thumbnail || (state.id ? 'https://i.ytimg.com/vi/' + state.id + '/mqdefault.jpg' : '');
+    const thumbnail = escapeHtml(thumbnailUrl);
     const progress = Math.min(100, Math.max(0, state.progress || 0));
-    const playingClass = state.isPlaying ? ' is-playing' : '';
+    const waveEffect = state.waveEffect || '';
+    const playingClass = state.isPlaying && !state.waveEnding && waveEffect !== 'skip' && waveEffect !== 'fade' ? ' is-playing' : '';
+    const waveEndingClass = state.waveEnding ? ' is-wave-ending' : '';
+    const skipClass = waveEffect === 'skip' ? ' is-skipping' : '';
+    const fadeClass = waveEffect === 'fade' ? ' is-wave-fading' : '';
+    const holdClass = state.waveHold && waveEffect !== 'skip' ? ' is-wave-held' : '';
     const songKey = getWidgetSongKey(state);
 
     if (songKey === activeWidgetSongKey && document.getElementById('widget-now-playing-card')) {
         updateWidgetCardState(state, progress);
+        if (state.isPlaying) {
+            showWidgetNow();
+        } else {
+            showWidgetTemporarily('paused');
+        }
         return;
     }
 
     activeWidgetSongKey = songKey;
     root.innerHTML =
-        '<div id="widget-now-playing-card" class="now-playing-card panel-card' + playingClass + '">' +
+        '<div id="widget-now-playing-card" class="now-playing-card panel-card' + playingClass + waveEndingClass + skipClass + fadeClass + holdClass + '">' +
             '<img class="np-card-cover" src="' + thumbnail + '" alt="">' +
             '<div class="np-card-main">' +
                 '<div class="np-card-info">' +
@@ -171,15 +420,30 @@ function renderState(state) {
 
     updateWidgetCardState(state, progress);
     observeWidgetCard();
+    applyCoverThemeToNowPlayingCard(document.getElementById('widget-now-playing-card'), thumbnailUrl);
+
+    if (state.isPlaying) {
+        showWidgetNow();
+    } else {
+        showWidgetTemporarily('paused');
+    }
 }
 
 function consumePayload(payload) {
     if (!payload || payload === lastPayload) return;
     lastPayload = payload;
     try {
-        renderState(JSON.parse(payload));
+        const state = JSON.parse(payload);
+        if (!state || state.type !== 'NOW_PLAYING_STATE') return;
+        if (state.updatedAt && Date.now() - state.updatedAt > WIDGET_STALE_MS) {
+            renderWidgetStatus('ui_widget_waiting_player', 'connection');
+            return;
+        }
+
+        lastWidgetStateAt = Date.now();
+        renderState(state);
     } catch (error) {
-        renderEmpty();
+        renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
 
@@ -260,7 +524,7 @@ function connectWidgetWebsocket() {
 try {
     if ('BroadcastChannel' in window) {
         const channel = new BroadcastChannel(CHANNEL_NAME);
-        channel.onmessage = event => renderState(event.data);
+        channel.onmessage = event => handleWidgetState(event.data);
     }
 } catch (error) {}
 
@@ -268,15 +532,22 @@ window.addEventListener('storage', event => {
     if (event.key === STORAGE_KEY) consumePayload(event.newValue);
 });
 
-renderEmpty();
+function monitorWidgetConnection() {
+    if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_STALE_MS) {
+        renderWidgetStatus('ui_widget_waiting_player', 'connection');
+    }
+}
+
+renderWidgetStatus('ui_widget_waiting_player', 'connection');
 readStorageState();
 connectWidgetWebsocket();
 setInterval(readStorageState, 500);
+setInterval(monitorWidgetConnection, 1000);
 } else {
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.1TEST!";
+        const CURRENT_VERSION = "v1.2.1";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
@@ -460,6 +731,8 @@ setInterval(readStorageState, 500);
                 renderSettingsMessages();
             }
 
+            updateWidgetUrlDisplay();
+
             if(ws) {
                 ws.onclose = null; 
                 ws.close();
@@ -520,8 +793,8 @@ setInterval(readStorageState, 500);
         const HOLIDAY_VARIANTS = [
 		//	{ key: 'TEST', className: 'theme-christmas', messageKey: 'ui_holiday_christmas', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: 'aAkMkVFwAoo', title: 'Mariah Carey - All I Want for Christmas Is You', author: 'Mariah Carey', duration: 241, user: 'Auto' } },
 		//	{ key: 'TEST', className: 'theme-newyear', messageKey: 'ui_holiday_newyear', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: '9jK-NcRmVcw', title: 'Europe - The Final Countdown', author: 'Europe', duration: 318, user: 'Auto' } },
-		//	{ key: 'TEST', className: 'theme-valentine', messageKey: 'ui_holiday_valentine', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: '2Vv-BfVoq4g', title: 'Ed Sheeran - Perfect', author: 'Ed Sheeran', duration: 263, user: 'Auto' } },
-		//	{ key: 'TEST', className: 'theme-april', messageKey: 'ui_holiday_april', ranges: ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', author: 'Rick Astley', duration: 213, user: 'Auto' } }
+		// 	{ key: 'TEST', className: 'theme-valentine', messageKey: 'ui_holiday_valentine', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: '2Vv-BfVoq4g', title: 'Ed Sheeran - Perfect', author: 'Ed Sheeran', duration: 263, user: 'Auto' } },
+		//	{ key: 'TEST', className: 'theme-april', messageKey: 'ui_holiday_april', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', author: 'Rick Astley', duration: 213, user: 'Auto' } },
             { key: 'christmas', className: 'theme-christmas', messageKey: 'ui_holiday_christmas', ranges: [{ sm: 11, sd: 24, em: 11, ed: 27 }], song: { id: 'aAkMkVFwAoo', title: 'Mariah Carey - All I Want for Christmas Is You', author: 'Mariah Carey', duration: 241, user: 'Auto' } },
             { key: 'newyear', className: 'theme-newyear', messageKey: 'ui_holiday_newyear', ranges: [{ sm: 11, sd: 31, em: 0, ed: 1 }], song: { id: '9jK-NcRmVcw', title: 'Europe - The Final Countdown', author: 'Europe', duration: 318, user: 'Auto' } },
             { key: 'valentine', className: 'theme-valentine', messageKey: 'ui_holiday_valentine', ranges: [{ sm: 1, sd: 14, em: 1, ed: 14 }], song: { id: '2Vv-BfVoq4g', title: 'Ed Sheeran - Perfect', author: 'Ed Sheeran', duration: 263, user: 'Auto' } },
@@ -546,6 +819,12 @@ setInterval(readStorageState, 500);
         let playHistory = [];   
         let currentSongInfo = null; 
         let currentSongStopped = false;
+        let nowPlayingWaveEffect = '';
+        let nowPlayingWaveEffectUntil = 0;
+        let nowPlayingWaveEffectId = 0;
+        let nowPlayingWaveHoldUntilStart = false;
+        let skipTransitionTimeout = null;
+        let stopTransitionTimeout = null;
         let titleCache = {};    
         let dragSourceIndex = null;
         let isSrEnabled = false; 
@@ -811,6 +1090,7 @@ setInterval(readStorageState, 500);
 
             if (port && port !== '8080') url.searchParams.set('port', port);
             if (pass) url.searchParams.set('pass', pass);
+            if (currentLang) url.searchParams.set('lang', currentLang);
             return url.toString();
         }
 
@@ -1140,6 +1420,86 @@ setInterval(readStorageState, 500);
             }[char]));
         }
 
+        const coverThemeCache = new Map();
+
+        function normalizeCoverThemeColor(color) {
+            const luma = (color.r * 0.2126) + (color.g * 0.7152) + (color.b * 0.0722);
+            let mixTarget = null;
+            let mixAmount = 0;
+
+            if (luma < 58) {
+                mixTarget = { r: 125, g: 135, b: 145 };
+                mixAmount = 0.38;
+            } else if (luma > 178) {
+                mixTarget = { r: 64, g: 68, b: 74 };
+                mixAmount = 0.42;
+            }
+
+            if (!mixTarget) return color;
+            return {
+                r: Math.round(color.r * (1 - mixAmount) + mixTarget.r * mixAmount),
+                g: Math.round(color.g * (1 - mixAmount) + mixTarget.g * mixAmount),
+                b: Math.round(color.b * (1 - mixAmount) + mixTarget.b * mixAmount)
+            };
+        }
+
+        function readAverageCoverColor(src) {
+            if (!src) return Promise.reject(new Error('No cover source'));
+            if (coverThemeCache.has(src)) return Promise.resolve(coverThemeCache.get(src));
+
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.crossOrigin = 'anonymous';
+                image.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const size = 24;
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                        ctx.drawImage(image, 0, 0, size, size);
+
+                        const data = ctx.getImageData(0, 0, size, size).data;
+                        let r = 0;
+                        let g = 0;
+                        let b = 0;
+                        let count = 0;
+
+                        for (let i = 0; i < data.length; i += 4) {
+                            if (data[i + 3] < 32) continue;
+                            r += data[i];
+                            g += data[i + 1];
+                            b += data[i + 2];
+                            count += 1;
+                        }
+
+                        if (!count) throw new Error('No readable cover pixels');
+                        const color = normalizeCoverThemeColor({
+                            r: Math.round(r / count),
+                            g: Math.round(g / count),
+                            b: Math.round(b / count)
+                        });
+                        coverThemeCache.set(src, color);
+                        resolve(color);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                image.onerror = reject;
+                image.src = src;
+            });
+        }
+
+        function applyCoverThemeToNowPlayingCard(card, src) {
+            if (!card || !src) return;
+            card.dataset.coverThemeSrc = src;
+
+            readAverageCoverColor(src).then(color => {
+                if (card.dataset.coverThemeSrc !== src) return;
+                card.style.setProperty('--np-cover-rgb', color.r + ', ' + color.g + ', ' + color.b);
+            }).catch(() => {});
+        }
+
         function getNowPlayingWaveBarHeight(index) {
             const height = 55 + Math.sin(index * 0.83) * 11 + Math.sin(index * 1.71 + 0.9) * 8 + Math.sin(index * 0.29 + 2.4) * 6;
             return Math.round(Math.min(78, Math.max(34, height)));
@@ -1153,10 +1513,40 @@ setInterval(readStorageState, 500);
         function createNowPlayingWaveBars(count = 28) {
             return Array.from({ length: count }, (_, index) => {
                 const height = getNowPlayingWaveBarHeight(index);
-                const delay = -(((index * 0.37) % 4.8)).toFixed(3);
+                const stagger = (index * 0.026).toFixed(3);
+                const skipStagger = ((((index * 37) % 29) * 0.006) + (((index * 11) % 5) * 0.002)).toFixed(3);
+                const skipX = ((index % 2 ? -1 : 1) * (4 + (index % 4))).toFixed(1) + 'px';
+                const skipXAlt = ((index % 2 ? 1 : -1) * (3 + (index % 5))).toFixed(1) + 'px';
+                const skipXSoft = ((index % 2 ? -1 : 1) * (1.5 + (index % 3))).toFixed(1) + 'px';
                 const duration = (2.45 + ((index * 7) % 11) * 0.09).toFixed(2);
-                return '<i style="--bar-height: ' + height + '%; --bar-delay: ' + delay + 's; --bar-duration: ' + duration + 's"></i>';
+                return '<i style="--bar-height: ' + height + '%; --bar-stagger: ' + stagger + 's; --bar-skip-stagger: ' + skipStagger + 's; --bar-skip-x: ' + skipX + '; --bar-skip-x-alt: ' + skipXAlt + '; --bar-skip-x-soft: ' + skipXSoft + '; --bar-duration: ' + duration + 's"></i>';
             }).join('');
+        }
+
+        function seededNowPlayingRandom(seed, index, salt = 0) {
+            const numericSeed = Number(seed) || 1;
+            const value = Math.sin((numericSeed * 12.9898) + (index * 78.233) + (salt * 37.719)) * 43758.5453;
+            return value - Math.floor(value);
+        }
+
+        function randomizeNowPlayingSkipBars(waveEl, seed) {
+            if (!waveEl) return;
+            const bars = Array.from(waveEl.querySelectorAll('i'));
+            const ordered = bars
+                .map((bar, index) => ({ bar, index, order: seededNowPlayingRandom(seed, index, 1) }))
+                .sort((a, b) => a.order - b.order);
+
+            ordered.forEach(({ bar, index }, rank) => {
+                const jitter = seededNowPlayingRandom(seed, index, 2);
+                const direction = seededNowPlayingRandom(seed, index, 3) > 0.5 ? 1 : -1;
+                const strength = 4 + Math.round(seededNowPlayingRandom(seed, index, 4) * 5);
+                const reverseStrength = 3 + Math.round(seededNowPlayingRandom(seed, index, 5) * 4);
+
+                bar.style.setProperty('--bar-skip-stagger', (rank * 0.0019 + jitter * 0.014).toFixed(3) + 's');
+                bar.style.setProperty('--bar-skip-x', (direction * strength).toFixed(1) + 'px');
+                bar.style.setProperty('--bar-skip-x-alt', (-direction * reverseStrength).toFixed(1) + 'px');
+                bar.style.setProperty('--bar-skip-x-soft', (direction * strength * 0.35).toFixed(1) + 'px');
+            });
         }
 
         function syncNowPlayingWaveBars(waveEl) {
@@ -1199,14 +1589,17 @@ setInterval(readStorageState, 500);
 
         function getNowPlayingWidgetState() {
             if (!currentSongInfo || currentSongStopped) {
-                return { type: 'NOW_PLAYING_STATE', hasSong: false, currentTime: 0, duration: 0, progress: 0, isPlaying: false, isStopped: !!currentSongStopped, updatedAt: Date.now() };
+                return { type: 'NOW_PLAYING_STATE', hasSong: false, currentTime: 0, duration: 0, progress: 0, isPlaying: false, isStopped: !!currentSongStopped, waveHold: false, updatedAt: Date.now() };
             }
 
             const playerDuration = player && player.getDuration ? Math.floor(player.getDuration()) : 0;
             const duration = playerDuration > 0 ? playerDuration : (currentSongInfo.duration || 0);
-            const currentTime = player && player.getCurrentTime ? Math.max(0, Math.floor(player.getCurrentTime())) : 0;
+            const rawCurrentTime = player && player.getCurrentTime ? Math.max(0, player.getCurrentTime()) : 0;
+            const currentTime = Math.floor(rawCurrentTime);
             const playerState = player && player.getPlayerState ? player.getPlayerState() : 0;
             const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
+            const activeWaveEffect = nowPlayingWaveEffectUntil > Date.now() ? nowPlayingWaveEffect : '';
+            const waveEnding = playerState === 1 && duration > 0 && (duration - rawCurrentTime) <= 1.8;
 
             return {
                 type: 'NOW_PLAYING_STATE',
@@ -1220,6 +1613,10 @@ setInterval(readStorageState, 500);
                 duration,
                 progress,
                 isPlaying: playerState === 1,
+                waveEnding,
+                waveEffect: activeWaveEffect,
+                waveEffectId: activeWaveEffect ? nowPlayingWaveEffectId : 0,
+                waveHold: nowPlayingWaveHoldUntilStart && activeWaveEffect !== 'skip',
                 isStopped: false,
                 playerState,
                 updatedAt: Date.now()
@@ -1232,8 +1629,10 @@ setInterval(readStorageState, 500);
             const durationEl = document.getElementById(prefix + '-duration');
             const progressEl = document.getElementById(prefix + '-progress');
             const waveEl = document.getElementById(prefix + '-wave');
+            const isSkipEffect = state.waveEffect === 'skip';
+            const isFadeEffect = state.waveEffect === 'fade';
+            const isWaveHeld = !!state.waveHold && !isSkipEffect;
 
-            if (card) card.classList.toggle('is-playing', !!state.isPlaying);
             if (currentEl) currentEl.innerText = formatTime(state.currentTime || 0);
             if (durationEl) durationEl.innerText = formatTime(state.duration || 0);
             if (progressEl) progressEl.style.width = (state.progress || 0) + '%';
@@ -1241,12 +1640,29 @@ setInterval(readStorageState, 500);
                 waveEl.style.setProperty('--np-progress', (state.progress || 0) + '%');
                 syncNowPlayingWaveBars(waveEl);
             }
+            if (card) {
+                const skipEffectId = String(state.waveEffectId || (isSkipEffect ? state.updatedAt || Date.now() : ''));
+                if (isSkipEffect && card.dataset.skipEffectId !== skipEffectId) {
+                    card.dataset.skipEffectId = skipEffectId;
+                    randomizeNowPlayingSkipBars(waveEl, skipEffectId);
+                    card.classList.remove('is-skipping');
+                    void card.offsetWidth;
+                } else if (!isSkipEffect) {
+                    card.dataset.skipEffectId = '';
+                }
+
+                card.classList.toggle('is-playing', !!state.isPlaying && !state.waveEnding && !isSkipEffect && !isFadeEffect && !isWaveHeld);
+                card.classList.toggle('is-wave-ending', !!state.waveEnding);
+                card.classList.toggle('is-skipping', isSkipEffect);
+                card.classList.toggle('is-wave-fading', isFadeEffect);
+                card.classList.toggle('is-wave-held', isWaveHeld);
+            }
         }
 
-        function publishNowPlayingWidgetStateToStreamerBot(state) {
+        function publishNowPlayingWidgetStateToStreamerBot(state, force = false) {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             const now = Date.now();
-            if (now - lastNowPlayingStreamerBotPush < NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL) return;
+            if (!force && now - lastNowPlayingStreamerBotPush < NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL) return;
             lastNowPlayingStreamerBotPush = now;
 
             try {
@@ -1259,7 +1675,7 @@ setInterval(readStorageState, 500);
             } catch (error) {}
         }
 
-        function publishNowPlayingWidgetState(state = getNowPlayingWidgetState()) {
+        function publishNowPlayingWidgetState(state = getNowPlayingWidgetState(), forceStreamerBot = false) {
             try {
                 localStorage.setItem(NOW_PLAYING_WIDGET_KEY, JSON.stringify(state));
             } catch (error) {}
@@ -1268,13 +1684,42 @@ setInterval(readStorageState, 500);
                 try { nowPlayingWidgetChannel.postMessage(state); } catch (error) {}
             }
 
-            publishNowPlayingWidgetStateToStreamerBot(state);
+            publishNowPlayingWidgetStateToStreamerBot(state, forceStreamerBot);
         }
 
         function updateNowPlayingProgress() {
             const state = getNowPlayingWidgetState();
             updateNowPlayingCardProgress('panel-now-playing', state);
             publishNowPlayingWidgetState(state);
+        }
+
+        function triggerNowPlayingWaveEffect(effect, durationMs = 520) {
+            nowPlayingWaveEffect = effect;
+            nowPlayingWaveEffectUntil = Date.now() + durationMs;
+            nowPlayingWaveEffectId = (nowPlayingWaveEffectId + 1) % 1000000;
+            const state = getNowPlayingWidgetState();
+            updateNowPlayingCardProgress('panel-now-playing', state);
+            publishNowPlayingWidgetState(state, true);
+        }
+
+        function clearNowPlayingWaveEffect() {
+            nowPlayingWaveEffect = '';
+            nowPlayingWaveEffectUntil = 0;
+        }
+
+        function stopCurrentSongWithWave() {
+            clearTimeout(stopTransitionTimeout);
+            nowPlayingWaveHoldUntilStart = false;
+            triggerNowPlayingWaveEffect('fade', 900);
+            player.stopVideo();
+            document.getElementById('now-playing-title').innerText = t('ui_stop_state');
+
+            stopTransitionTimeout = setTimeout(() => {
+                currentSongStopped = true;
+                clearNowPlayingWaveEffect();
+                stopTransitionTimeout = null;
+                publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
+            }, 760);
         }
 
         function log(msg, type='normal') {
@@ -1497,6 +1942,11 @@ setInterval(readStorageState, 500);
         }
 
         function playNext() {
+            clearTimeout(skipTransitionTimeout);
+            clearTimeout(stopTransitionTimeout);
+            skipTransitionTimeout = null;
+            stopTransitionTimeout = null;
+            clearNowPlayingWaveEffect();
             if(currentSongInfo) playHistory.push(currentSongInfo);
             
             if (playQueue.length > 0) {
@@ -1516,14 +1966,39 @@ setInterval(readStorageState, 500);
 
         function onPlayerStateChange(e) {
             if (e.data === 0) playNext(); 
+            if (e.data === 2 && currentSongInfo && !currentSongStopped) {
+                triggerNowPlayingWaveEffect('fade', 900);
+            }
             if (e.data === 1) {            
                 currentSongStopped = false;
+                nowPlayingWaveHoldUntilStart = false;
+                clearTimeout(stopTransitionTimeout);
+                stopTransitionTimeout = null;
+                clearNowPlayingWaveEffect();
                 document.getElementById('now-playing-title').innerText = currentSongInfo.title;
                 document.getElementById('now-playing-meta').innerText = currentSongInfo.user === "Auto" ? `Auto` : `👤 ${currentSongInfo.user}`;
             }
         }
 
-        function skipSong() { log("⏭️ SKIP", "warn"); playNext(); }
+        function skipSong() {
+            log("⏭️ SKIP", "warn");
+            if (!currentSongInfo) {
+                playNext();
+                return;
+            }
+
+            clearTimeout(skipTransitionTimeout);
+            triggerNowPlayingWaveEffect('skip', 820);
+            skipTransitionTimeout = setTimeout(() => {
+                nowPlayingWaveHoldUntilStart = true;
+                nowPlayingWaveEffect = '';
+                nowPlayingWaveEffectUntil = 0;
+                skipTransitionTimeout = null;
+                lastNowPlayingStreamerBotPush = 0;
+                publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
+                playNext();
+            }, 680);
+        }
         
         function togglePlay() { 
             if (!currentSongInfo) {
@@ -1535,18 +2010,22 @@ setInterval(readStorageState, 500);
                 return;
             }
 
-            if(player.getPlayerState() === 1) { player.pauseVideo(); } 
+            if(player.getPlayerState() === 1) {
+                triggerNowPlayingWaveEffect('fade', 900);
+                player.pauseVideo();
+            } 
             else {
                 currentSongStopped = false;
+                nowPlayingWaveHoldUntilStart = false;
+                clearTimeout(stopTransitionTimeout);
+                stopTransitionTimeout = null;
+                clearNowPlayingWaveEffect();
                 player.playVideo();
             }
         }
         
         function stopSongUI() { 
-            currentSongStopped = true;
-            player.stopVideo(); 
-            document.getElementById('now-playing-title').innerText = t('ui_stop_state'); 
-            publishNowPlayingWidgetState();
+            stopCurrentSongWithWave();
         }
 
         function playFromChat(user) {
@@ -1567,6 +2046,9 @@ setInterval(readStorageState, 500);
 
             if (player.getPlayerState() !== 1) {
                 currentSongStopped = false;
+                clearTimeout(stopTransitionTimeout);
+                stopTransitionTimeout = null;
+                clearNowPlayingWaveEffect();
                 player.playVideo();
                 sendChatMessage(t('msg_resumed', {user: user}));
             } else {
@@ -1576,6 +2058,7 @@ setInterval(readStorageState, 500);
 
         function pauseFromChat(user) {
             if (currentSongInfo && player.getPlayerState() === 1) {
+                triggerNowPlayingWaveEffect('fade', 900);
                 player.pauseVideo();
                 sendChatMessage(t('msg_paused', {user: user}));
             } else {
@@ -1585,10 +2068,7 @@ setInterval(readStorageState, 500);
 
         function stopFromChat(user) {
             if (currentSongInfo && player.getPlayerState() !== 5) {
-                currentSongStopped = true;
-                player.stopVideo();
-                document.getElementById('now-playing-title').innerText = t('ui_stop_state');
-                publishNowPlayingWidgetState();
+                stopCurrentSongWithWave();
                 sendChatMessage(t('msg_stopped', {user: user}));
             } else {
                 sendChatMessage(t('msg_nothing_playing', {user: user}));
@@ -1760,6 +2240,7 @@ setInterval(readStorageState, 500);
 
             if (currentSongInfo) {
                 nowPlayingBox.innerHTML = renderNowPlayingCard(currentSongInfo, { prefix: 'panel-now-playing', dropTarget: true, showBan: true, className: 'panel-card' });
+                applyCoverThemeToNowPlayingCard(document.getElementById('panel-now-playing-card'), 'https://i.ytimg.com/vi/' + currentSongInfo.id + '/mqdefault.jpg');
             } else nowPlayingBox.innerHTML = `<div class="ex-style-013">${t('ui_no_song')}</div>`;
 
             updateNowPlayingProgress();

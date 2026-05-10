@@ -5,7 +5,7 @@
     <title>YTM Song Request</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     
-    <link rel="stylesheet" href="style.css?v=20260509-widget15">
+    <link rel="stylesheet" href="style.css?v=20260511-widget30">
 </head>
 <body>
 
@@ -71,14 +71,10 @@
         <div class="panel panel-right">
             <div class="header">
                 <div class="ex-style-001">
-                    <span data-i18n="ui_queue">QUEUE !SR</span>
+                    <span data-i18n="ui_queue">Queue</span>
                     <button data-action="openBanList" data-i18n="ui_banned_btn" class="ex-style-010">🔨 BANNED</button>
                 </div>
                 <div class="ex-style-011 queue-tools">
-                    <label class="queue-persist-toggle" data-i18n-title="ui_queue_persist_title" title="Keep the current queue after refreshing the page">
-                        <input type="checkbox" id="queue-persist-cb" data-change-action="handleQueuePersistenceToggle">
-                        <span data-i18n="ui_queue_persist">Save queue</span>
-                    </label>
                     <span id="queue-time" class="list-count" data-i18n-title="ui_queue_time_title" title="Total time of queued tracks">⏱️ 0m 0s</span>
                     <span id="queue-count" class="list-count" data-i18n-title="ui_queue_count_title" title="Total tracks (including current)">🎵 0</span>
                 </div>
@@ -86,6 +82,11 @@
             
             <div id="now-playing-box">
                 <div data-i18n="ui_now_playing" class="ex-style-012">🎵 Now Playing</div>
+                <label class="queue-persist-switch" data-i18n-title="ui_queue_persist_title" title="Keep the current queue after refreshing the page">
+                    <span data-i18n="ui_queue_persist">Save queue</span>
+                    <input type="checkbox" id="queue-persist-cb" data-change-action="handleQueuePersistenceToggle">
+                    <span class="queue-switch-track" aria-hidden="true"></span>
+                </label>
                 <div id="now-playing-content">
                     <div data-i18n="ui_no_song" class="ex-style-013">No song</div>
                 </div>
@@ -374,7 +375,7 @@
         </div>
     </div>
 
-    <script src="translations.js?v=20260509-widget6"></script>
-    <script src="app.js?v=20260509-widget15"></script>
+    <script src="translations.js?v=20260511-widget30"></script>
+    <script src="app.js?v=20260511-widget30"></script>
 </body>
 </html>
