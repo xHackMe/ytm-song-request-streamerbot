@@ -1,19 +1,63 @@
-Release v1.2.0 (IMPORT TO STREMERBOT IS REQUIRED!!!)
+Release v1.2.1 (IMPORT TO STREMERBOT IS REQUIRED!!!)
 📜 Changelog
 
-v1.2.0
-08.05
+v1.2.1
+15.05
 
-NEW Added editable !sr request limits for maximum track length and YouTube Music category filtering.
-IMPORT TO STREMERBOT IS REQUIRED!!! you can find it in HELP Section! Replacle and enable commands in stremer bot!
-NEW Added optional queue persistence so the current queue can survive browser refreshes.
-NEW Added automatic startup track loading before playback begins, using YouTube Music most popular results when an API key is available.
-NEW Split the original single-file page into `index.html`, `style.css`, `translations.js`, and `app.js` while preserving the existing behavior.
-FIX Fixed Streamer.bot WebSocket password authentication by handling the `Hello` salt/challenge flow and sending the hashed authentication response before subscribing to events.
-CHANGE Moved static visual styles out of `index.html` into `style.css`, including previously inline styles.
-CHANGE Moved static UI event wiring out of `index.html` into `app.js` using `data-action`, `data-change-action`, and `data-input-action` attributes.
-CHANGE Updated the Help tutorial with queue persistence and request limit details.
-CHANGE Updated the Streamer.bot import string so !sr settings can be synced from the web interface after reimporting the actions.
-FIX Translated all source-code comments to English.
-FIX Track-too-long chat messages now use the configured duration limit instead of a hardcoded 15 minutes.
-FIX Restored language-specific diacritics in newly added Polish, French, German, and Turkish UI text.
+NEW Added a standalone transparent OBS Now Playing widget page with cover art, elapsed time, duration, waveform, and progress bar.
+NEW Added an OBS widget configuration section in Settings with an auto-generated Browser Source URL.
+NEW Added cover-color extraction for Now Playing cards to tint the panels from the current song artwork.
+CHANGE Made the standalone OBS Now Playing widget fill and scale to the full browser source size.
+CHANGE Redesigned the right-panel Now Playing card to match the standalone widget style and show live playback progress.
+CHANGE Updated the Streamer.bot import string with a `NowPlayingWidgetState` bridge action for OBS widget updates.
+CHANGE Updated Help and Settings with a short OBS widget setup guide pointing to the Settings-generated URL.
+CHANGE Added a frosted-glass style to the Now Playing info and meter panels with translucent cover-based coloring.
+CHANGE Renamed the right-panel queue heading from "Queue !SR" to "Queue" in every language.
+CHANGE Moved queue persistence into a compact switch under the Now Playing label.
+FIX Kept the !SR queue header controls on one line with responsive text sizing for long times and large queue counts.
+FIX Kept queue duration and track count fully visible in the right-panel header instead of truncating them.
+FIX Kept the OBS widget silent after auto-hiding from pause, stop, or idle until music starts again.
+FIX Prevented the waiting-for-player message from reappearing after its own 30-second auto-hide unless a real player connection returns.
+
+Release v1.1.0
+📜 Changelog
+
+v1.1.0
+07.05.2026
+
+NEW Massive UI Clean-up! Middle panel refactored using CSS Grid. Statuses are now perfectly aligned on the left, a large !SR ON/OFF toggle in the center, and the Settings gear (⚙️) on the right.
+NEW Multi-language System (i18n) expanded! Fully implemented translation system supporting English, Polish, German, French, and Turkish.
+NEW Custom Chat Messages! You can now fully edit all bot responses directly from the Settings menu. Supports restoring defaults and saving per-language.
+NEW Added WebSocket Password support for Streamer.bot authentication.
+NEW Base Playlist manager moved to a new dedicated 📁 Manage Playlists button for better access and full i18n support.
+CHANGE UI/UX Modernization: Added smooth hover animations, distinct green badges for "ONLINE" statuses, and an overall consistent Dark Mode palette.
+CHANGE Refactored codebase: All Polish comments in the HTML/CSS/JS source code have been translated to English.
+FIX Fixed the GitHub changelog fetcher to correctly parse release notes, markdown lists, and status badges.
+FIX Dynamic language translation now applies correctly to the "New Update" button without requiring a page reload.
+FIX "STOP" and "ERROR" statuses under the player are now properly translated.
+FIX Changed default suggested tutorial path from YTM to ytm.
+FIX Tutorial window now includes a quick language selector and updated instructions reflecting the new UI layout.
+
+First Official Release v1.0.0a
+📜 Changelog
+
+v1.0.0a
+06.05.2026
+NEW GitHub implementation and final project structuring.
+FIX Fixed a visual bug where changing the language displayed a false "Connecting" status for the WebSocket. The connection now automatically refreshes upon language change.
+
+v1.0.0
+06.05.2026
+NEW Multi-language System (i18n). The app now fully supports English, Polish, German, French, and Turkish. Language preferences are saved locally.
+NEW Chat messages from the bot are now translated instantly based on the selected language without restarting.
+NEW Dynamic tutorial instructions! The final step now recognizes if you are opening the file locally (file://) or through the Streamer.bot server (http://localhost) and adapts the message accordingly.
+NEW Added an important reminder for users to keep port settings in sync.
+
+v0.9.0
+06.05.2026
+NEW First official release. Project renamed to YTM Song Request.
+NEW Added real-time search for base tracks with quick add buttons.
+NEW Built-in Changelog modal.
+CHANGE Split Streamer.bot !play action into separate, safer commands.
+FIX Command !skip now sends the exact track info.
+FIX UI optimization.
