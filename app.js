@@ -1,7 +1,553 @@
+if (document.body.classList.contains('now-playing-widget-page')) {
+const STORAGE_KEY = 'ytm_now_playing_widget_state';
+const CHANNEL_NAME = 'ytm_now_playing_widget';
+const root = document.getElementById('widget-root');
+const widgetParams = new URLSearchParams(window.location.search || '');
+const WIDGET_WS_PORT = widgetParams.get('port') || widgetParams.get('wsPort') || '8080';
+const WIDGET_WS_PASS = widgetParams.get('pass') || widgetParams.get('password') || widgetParams.get('wsPass') || '';
+const WIDGET_LANG = widgetParams.get('lang') || widgetParams.get('language') || '';
+const WIDGET_STALE_MS = 3500;
+const WIDGET_AUTO_HIDE_MS = 30000;
+let lastPayload = '';
+let activeWidgetSongKey = '';
+let lastWidgetStateAt = 0;
+let lastWidgetPlayableState = null;
+let widgetAutoHideTimeout = null;
+let widgetAutoHideMode = '';
+let widgetHiddenReason = '';
+let widgetStatusKey = '';
+let widgetWs = null;
+let widgetWsReconnectTimeout = null;
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function cleanAuthorName(name) {
+    if (!name) return 'YouTube';
+    return String(name).replace(/\s*-\s*Topic$/i, '').replace(/\s*-\s*temat$/i, '').trim();
+}
+
+function formatTime(totalSeconds) {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    return minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+}
+
+const coverThemeCache = new Map();
+
+function normalizeCoverThemeColor(color) {
+    const luma = (color.r * 0.2126) + (color.g * 0.7152) + (color.b * 0.0722);
+    let mixTarget = null;
+    let mixAmount = 0;
+
+    if (luma < 58) {
+        mixTarget = { r: 125, g: 135, b: 145 };
+        mixAmount = 0.38;
+    } else if (luma > 178) {
+        mixTarget = { r: 64, g: 68, b: 74 };
+        mixAmount = 0.42;
+    }
+
+    if (!mixTarget) return color;
+    return {
+        r: Math.round(color.r * (1 - mixAmount) + mixTarget.r * mixAmount),
+        g: Math.round(color.g * (1 - mixAmount) + mixTarget.g * mixAmount),
+        b: Math.round(color.b * (1 - mixAmount) + mixTarget.b * mixAmount)
+    };
+}
+
+function readAverageCoverColor(src) {
+    if (!src) return Promise.reject(new Error('No cover source'));
+    if (coverThemeCache.has(src)) return Promise.resolve(coverThemeCache.get(src));
+
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const size = 24;
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(image, 0, 0, size, size);
+
+                const data = ctx.getImageData(0, 0, size, size).data;
+                let r = 0;
+                let g = 0;
+                let b = 0;
+                let count = 0;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    if (data[i + 3] < 32) continue;
+                    r += data[i];
+                    g += data[i + 1];
+                    b += data[i + 2];
+                    count += 1;
+                }
+
+                if (!count) throw new Error('No readable cover pixels');
+                const color = normalizeCoverThemeColor({
+                    r: Math.round(r / count),
+                    g: Math.round(g / count),
+                    b: Math.round(b / count)
+                });
+                coverThemeCache.set(src, color);
+                resolve(color);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        image.onerror = reject;
+        image.src = src;
+    });
+}
+
+function applyCoverThemeToNowPlayingCard(card, src) {
+    if (!card || !src) return;
+    card.dataset.coverThemeSrc = src;
+
+    readAverageCoverColor(src).then(color => {
+        if (card.dataset.coverThemeSrc !== src) return;
+        card.style.setProperty('--np-cover-rgb', color.r + ', ' + color.g + ', ' + color.b);
+    }).catch(() => {});
+}
+
+function getNowPlayingWaveBarHeight(index) {
+    const height = 55 + Math.sin(index * 0.83) * 11 + Math.sin(index * 1.71 + 0.9) * 8 + Math.sin(index * 0.29 + 2.4) * 6;
+    return Math.round(Math.min(78, Math.max(34, height)));
+}
+
+function getNowPlayingWaveBarCount(width) {
+    if (!width) return 28;
+    return Math.min(96, Math.max(18, Math.round(width / 9)));
+}
+
+function createNowPlayingWaveBars(count = 28) {
+    return Array.from({ length: count }, (_, index) => {
+        const height = getNowPlayingWaveBarHeight(index);
+        const stagger = (index * 0.026).toFixed(3);
+        const skipStagger = ((((index * 37) % 29) * 0.006) + (((index * 11) % 5) * 0.002)).toFixed(3);
+        const skipX = ((index % 2 ? -1 : 1) * (4 + (index % 4))).toFixed(1) + 'px';
+        const skipXAlt = ((index % 2 ? 1 : -1) * (3 + (index % 5))).toFixed(1) + 'px';
+        const skipXSoft = ((index % 2 ? -1 : 1) * (1.5 + (index % 3))).toFixed(1) + 'px';
+        const duration = (2.45 + ((index * 7) % 11) * 0.09).toFixed(2);
+        return '<i style="--bar-height: ' + height + '%; --bar-stagger: ' + stagger + 's; --bar-skip-stagger: ' + skipStagger + 's; --bar-skip-x: ' + skipX + '; --bar-skip-x-alt: ' + skipXAlt + '; --bar-skip-x-soft: ' + skipXSoft + '; --bar-duration: ' + duration + 's"></i>';
+    }).join('');
+}
+
+function seededNowPlayingRandom(seed, index, salt = 0) {
+    const numericSeed = Number(seed) || 1;
+    const value = Math.sin((numericSeed * 12.9898) + (index * 78.233) + (salt * 37.719)) * 43758.5453;
+    return value - Math.floor(value);
+}
+
+function randomizeNowPlayingSkipBars(waveEl, seed) {
+    if (!waveEl) return;
+    const bars = Array.from(waveEl.querySelectorAll('i'));
+    const ordered = bars
+        .map((bar, index) => ({ bar, index, order: seededNowPlayingRandom(seed, index, 1) }))
+        .sort((a, b) => a.order - b.order);
+
+    ordered.forEach(({ bar, index }, rank) => {
+        const jitter = seededNowPlayingRandom(seed, index, 2);
+        const direction = seededNowPlayingRandom(seed, index, 3) > 0.5 ? 1 : -1;
+        const strength = 4 + Math.round(seededNowPlayingRandom(seed, index, 4) * 5);
+        const reverseStrength = 3 + Math.round(seededNowPlayingRandom(seed, index, 5) * 4);
+
+        bar.style.setProperty('--bar-skip-stagger', (rank * 0.0019 + jitter * 0.014).toFixed(3) + 's');
+        bar.style.setProperty('--bar-skip-x', (direction * strength).toFixed(1) + 'px');
+        bar.style.setProperty('--bar-skip-x-alt', (-direction * reverseStrength).toFixed(1) + 'px');
+        bar.style.setProperty('--bar-skip-x-soft', (direction * strength * 0.35).toFixed(1) + 'px');
+    });
+}
+
+function syncNowPlayingWaveBars(waveEl) {
+    if (!waveEl) return;
+    const width = waveEl.clientWidth || waveEl.getBoundingClientRect().width;
+    const count = getNowPlayingWaveBarCount(width);
+    if (waveEl.dataset.barCount !== String(count)) {
+        waveEl.innerHTML = createNowPlayingWaveBars(count);
+        waveEl.dataset.barCount = String(count);
+    }
+}
+
+function getWidgetLanguage() {
+    if (WIDGET_LANG) return WIDGET_LANG;
+
+    try {
+        return localStorage.getItem('ytm_lang') || document.documentElement.lang || 'en';
+    } catch (error) {
+        return 'en';
+    }
+}
+
+function widgetT(key) {
+    const fallback = {
+        ui_widget_waiting_player: 'Waiting for player connection...'
+    };
+
+    try {
+        if (typeof i18n !== 'undefined') {
+            const lang = getWidgetLanguage();
+            const dict = i18n[lang] || i18n.en || {};
+            return dict[key] || (i18n.en && i18n.en[key]) || fallback[key] || key;
+        }
+    } catch (error) {}
+
+    return fallback[key] || key;
+}
+
+function clearWidgetAutoHide() {
+    clearTimeout(widgetAutoHideTimeout);
+    widgetAutoHideTimeout = null;
+    widgetAutoHideMode = '';
+    widgetHiddenReason = '';
+}
+
+function showWidgetNow() {
+    clearWidgetAutoHide();
+    root.classList.add('is-widget-visible');
+    root.classList.remove('is-widget-hidden');
+}
+
+function shouldKeepWidgetSilent(mode) {
+    if (!root.classList.contains('is-widget-hidden')) return false;
+    if (!widgetHiddenReason) return false;
+    if (widgetHiddenReason === mode) return true;
+    return ['paused', 'stopped', 'empty'].includes(widgetHiddenReason);
+}
+
+function showWidgetTemporarily(mode) {
+    if (shouldKeepWidgetSilent(mode)) return false;
+
+    root.classList.add('is-widget-visible');
+    root.classList.remove('is-widget-hidden');
+    widgetHiddenReason = '';
+
+    if (widgetAutoHideMode === mode && widgetAutoHideTimeout) return true;
+
+    clearTimeout(widgetAutoHideTimeout);
+    widgetAutoHideMode = mode;
+    widgetAutoHideTimeout = setTimeout(() => {
+        root.classList.add('is-widget-hidden');
+        widgetHiddenReason = mode;
+        widgetAutoHideTimeout = null;
+    }, WIDGET_AUTO_HIDE_MS);
+    return true;
+}
+
+function renderWidgetStatus(messageKey, mode = 'connection') {
+    if (shouldKeepWidgetSilent(mode)) return;
+
+    activeWidgetSongKey = '';
+    if (widgetResizeObserver) widgetResizeObserver.disconnect();
+
+    const message = escapeHtml(widgetT(messageKey));
+    const statusEl = root.querySelector('.widget-status');
+
+    if (!statusEl || widgetStatusKey !== messageKey) {
+        root.innerHTML = '<div class="widget-status" role="status">' + message + '</div>';
+    } else {
+        statusEl.innerHTML = message;
+    }
+
+    widgetStatusKey = messageKey;
+    showWidgetTemporarily(mode);
+}
+
+function renderEmpty() {
+    renderWidgetStatus('ui_widget_waiting_player', 'empty');
+}
+
+function getWidgetSongKey(state) {
+    return [
+        state.id || '',
+        state.title || '',
+        state.author || '',
+        state.user || '',
+        state.thumbnail || ''
+    ].join('|');
+}
+
+function updateWidgetCardState(state, progress) {
+    const card = document.getElementById('widget-now-playing-card');
+    const currentEl = document.getElementById('widget-now-playing-current');
+    const durationEl = document.getElementById('widget-now-playing-duration');
+    const progressEl = document.getElementById('widget-now-playing-progress');
+    const waveEl = document.getElementById('widget-now-playing-wave');
+    const isSkipEffect = state.waveEffect === 'skip';
+    const isFadeEffect = state.waveEffect === 'fade';
+    const isWaveHeld = !!state.waveHold && !isSkipEffect;
+
+    if (currentEl) currentEl.innerText = formatTime(state.currentTime);
+    if (durationEl) durationEl.innerText = formatTime(state.duration);
+    if (progressEl) progressEl.style.width = progress + '%';
+    if (waveEl) {
+        waveEl.style.setProperty('--np-progress', progress + '%');
+        syncNowPlayingWaveBars(waveEl);
+    }
+    if (card) {
+        const skipEffectId = String(state.waveEffectId || (isSkipEffect ? state.updatedAt || Date.now() : ''));
+        if (isSkipEffect && card.dataset.skipEffectId !== skipEffectId) {
+            card.dataset.skipEffectId = skipEffectId;
+            randomizeNowPlayingSkipBars(waveEl, skipEffectId);
+            card.classList.remove('is-skipping');
+            void card.offsetWidth;
+        } else if (!isSkipEffect) {
+            card.dataset.skipEffectId = '';
+        }
+
+        card.classList.toggle('is-playing', !!state.isPlaying && !state.waveEnding && !isSkipEffect && !isFadeEffect && !isWaveHeld);
+        card.classList.toggle('is-wave-ending', !!state.waveEnding);
+        card.classList.toggle('is-skipping', isSkipEffect);
+        card.classList.toggle('is-wave-fading', isFadeEffect);
+        card.classList.toggle('is-wave-held', isWaveHeld);
+    }
+    queueWidgetTextFit();
+}
+
+function fitWidgetTextElement(element, minScale) {
+    if (!element) return;
+    const currentSize = parseFloat(element.dataset.baseFontSize || getComputedStyle(element).fontSize);
+    if (!element.dataset.baseFontSize) element.dataset.baseFontSize = String(currentSize);
+    const minSize = Math.max(9, currentSize * minScale);
+    let size = currentSize;
+
+    element.style.fontSize = currentSize + 'px';
+    while (size > minSize && (element.scrollHeight > element.clientHeight + 1 || element.scrollWidth > element.clientWidth + 1)) {
+        size -= 1;
+        element.style.fontSize = size + 'px';
+    }
+}
+
+let widgetTextFitFrame = 0;
+let widgetResizeObserver = null;
+
+function queueWidgetTextFit() {
+    cancelAnimationFrame(widgetTextFitFrame);
+    widgetTextFitFrame = requestAnimationFrame(() => {
+        fitWidgetTextElement(document.querySelector('#widget-now-playing-card .np-card-title'), 0.72);
+        fitWidgetTextElement(document.querySelector('#widget-now-playing-card .np-card-author'), 0.68);
+    });
+}
+
+function observeWidgetCard() {
+    const card = document.getElementById('widget-now-playing-card');
+    if (!card || !('ResizeObserver' in window)) return;
+    if (widgetResizeObserver) widgetResizeObserver.disconnect();
+    widgetResizeObserver = new ResizeObserver(() => {
+        syncNowPlayingWaveBars(document.getElementById('widget-now-playing-wave'));
+        queueWidgetTextFit();
+    });
+    widgetResizeObserver.observe(card);
+}
+
+function renderState(state) {
+    if (!state || !state.hasSong || state.isStopped) {
+        if (state && state.isStopped && lastWidgetPlayableState && document.getElementById('widget-now-playing-card')) {
+            if (shouldKeepWidgetSilent('stopped')) return;
+
+            const stoppedState = {
+                ...lastWidgetPlayableState,
+                isPlaying: false,
+                waveEnding: false,
+                waveEffect: 'fade'
+            };
+            const progress = Math.min(100, Math.max(0, stoppedState.progress || 0));
+            updateWidgetCardState(stoppedState, progress);
+            showWidgetTemporarily('stopped');
+            return;
+        }
+
+        renderWidgetStatus('ui_widget_waiting_player', state && state.isStopped ? 'stopped' : 'empty');
+        return;
+    }
+
+    lastWidgetPlayableState = { ...state };
+    widgetStatusKey = '';
+
+    const title = escapeHtml(state.title || 'Unknown Title');
+    const author = escapeHtml(cleanAuthorName(state.author || 'YouTube'));
+    const user = state.user === 'Auto' ? 'Auto' : escapeHtml(state.user || 'Viewer');
+    const thumbnailUrl = state.thumbnail || (state.id ? 'https://i.ytimg.com/vi/' + state.id + '/mqdefault.jpg' : '');
+    const thumbnail = escapeHtml(thumbnailUrl);
+    const progress = Math.min(100, Math.max(0, state.progress || 0));
+    const waveEffect = state.waveEffect || '';
+    const playingClass = state.isPlaying && !state.waveEnding && waveEffect !== 'skip' && waveEffect !== 'fade' ? ' is-playing' : '';
+    const waveEndingClass = state.waveEnding ? ' is-wave-ending' : '';
+    const skipClass = waveEffect === 'skip' ? ' is-skipping' : '';
+    const fadeClass = waveEffect === 'fade' ? ' is-wave-fading' : '';
+    const holdClass = state.waveHold && waveEffect !== 'skip' ? ' is-wave-held' : '';
+    const songKey = getWidgetSongKey(state);
+
+    if (songKey === activeWidgetSongKey && document.getElementById('widget-now-playing-card')) {
+        updateWidgetCardState(state, progress);
+        if (state.isPlaying) {
+            showWidgetNow();
+        } else {
+            showWidgetTemporarily('paused');
+        }
+        return;
+    }
+
+    activeWidgetSongKey = songKey;
+    root.innerHTML =
+        '<div id="widget-now-playing-card" class="now-playing-card panel-card' + playingClass + waveEndingClass + skipClass + fadeClass + holdClass + '">' +
+            '<img class="np-card-cover" src="' + thumbnail + '" alt="">' +
+            '<div class="np-card-main">' +
+                '<div class="np-card-info">' +
+                    '<div class="np-card-title" title="' + title + '">' + title + '</div>' +
+                    '<div class="np-card-author" title="' + author + '">' + author + '</div>' +
+                '</div>' +
+                '<div class="np-card-meter">' +
+                    '<span id="widget-now-playing-current" class="np-card-time">' + formatTime(state.currentTime) + '</span>' +
+                    '<div id="widget-now-playing-wave" class="np-card-wave" style="--np-progress: ' + progress + '%" aria-hidden="true">' + createNowPlayingWaveBars() + '</div>' +
+                    '<span id="widget-now-playing-duration" class="np-card-time">' + formatTime(state.duration) + '</span>' +
+                '</div>' +
+            '</div>' +
+            '<span class="np-card-user">' + user + '</span>' +
+            '<div class="np-card-progress"><div id="widget-now-playing-progress" class="np-card-progress-fill" style="width: ' + progress + '%"></div></div>' +
+        '</div>';
+
+    updateWidgetCardState(state, progress);
+    observeWidgetCard();
+    applyCoverThemeToNowPlayingCard(document.getElementById('widget-now-playing-card'), thumbnailUrl);
+
+    if (state.isPlaying) {
+        showWidgetNow();
+    } else {
+        showWidgetTemporarily('paused');
+    }
+}
+
+function consumePayload(payload) {
+    if (!payload || payload === lastPayload) return;
+    lastPayload = payload;
+    try {
+        const state = JSON.parse(payload);
+        if (!state || state.type !== 'NOW_PLAYING_STATE') return;
+        if (state.updatedAt && Date.now() - state.updatedAt > WIDGET_STALE_MS) {
+            renderWidgetStatus('ui_widget_waiting_player', 'connection');
+            return;
+        }
+
+        lastWidgetStateAt = Date.now();
+        renderState(state);
+    } catch (error) {
+        renderWidgetStatus('ui_widget_waiting_player', 'connection');
+    }
+}
+
+function handleWidgetState(state) {
+    if (!state || state.type !== 'NOW_PLAYING_STATE') return;
+    consumePayload(JSON.stringify(state));
+}
+
+function readStorageState() {
+    try {
+        consumePayload(localStorage.getItem(STORAGE_KEY));
+    } catch (error) {}
+}
+
+function unwrapStreamerBotPayload(raw) {
+    if (raw && raw.data && typeof raw.data === 'object' && raw.data.data) {
+        try { return JSON.parse(raw.data.data); } catch (error) { return null; }
+    }
+    if (raw && raw.type) return raw;
+    return null;
+}
+
+async function createStreamerBotAuthentication(password, salt, challenge) {
+    const encoder = new TextEncoder();
+    const toBase64 = buffer => btoa(String.fromCharCode(...new Uint8Array(buffer)));
+    const secretBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(password + salt));
+    const secret = toBase64(secretBuffer);
+    const authBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(secret + challenge));
+    return toBase64(authBuffer);
+}
+
+function subscribeWidgetToStreamerBotEvents() {
+    if (widgetWs && widgetWs.readyState === WebSocket.OPEN) {
+        widgetWs.send(JSON.stringify({ request: 'Subscribe', events: { General: ['Custom'] }, id: 'WidgetSub' }));
+    }
+}
+
+async function handleWidgetStreamerBotHello(raw) {
+    if (raw.authentication) {
+        if (!WIDGET_WS_PASS) return;
+        try {
+            const authentication = await createStreamerBotAuthentication(WIDGET_WS_PASS, raw.authentication.salt, raw.authentication.challenge);
+            widgetWs.send(JSON.stringify({ request: 'Authenticate', authentication, id: 'WidgetAuth' }));
+        } catch (error) {}
+        return;
+    }
+
+    subscribeWidgetToStreamerBotEvents();
+}
+
+function connectWidgetWebsocket() {
+    if (typeof WebSocket === 'undefined') return;
+    clearTimeout(widgetWsReconnectTimeout);
+    widgetWs = new WebSocket('ws://localhost:' + WIDGET_WS_PORT + '/');
+
+    widgetWs.onmessage = async event => {
+        try {
+            const raw = JSON.parse(event.data.toString());
+            if (raw.request === 'Hello') {
+                await handleWidgetStreamerBotHello(raw);
+                return;
+            }
+            if (raw.id === 'WidgetSub') return;
+            if (raw.id === 'WidgetAuth') {
+                if (raw.status === 'ok') subscribeWidgetToStreamerBotEvents();
+                return;
+            }
+
+            handleWidgetState(unwrapStreamerBotPayload(raw));
+        } catch (error) {}
+    };
+
+    widgetWs.onclose = () => {
+        widgetWsReconnectTimeout = setTimeout(connectWidgetWebsocket, 5000);
+    };
+}
+
+try {
+    if ('BroadcastChannel' in window) {
+        const channel = new BroadcastChannel(CHANNEL_NAME);
+        channel.onmessage = event => handleWidgetState(event.data);
+    }
+} catch (error) {}
+
+window.addEventListener('storage', event => {
+    if (event.key === STORAGE_KEY) consumePayload(event.newValue);
+});
+
+function monitorWidgetConnection() {
+    if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_STALE_MS) {
+        renderWidgetStatus('ui_widget_waiting_player', 'connection');
+    }
+}
+
+renderWidgetStatus('ui_widget_waiting_player', 'connection');
+readStorageState();
+connectWidgetWebsocket();
+setInterval(readStorageState, 500);
+setInterval(monitorWidgetConnection, 1000);
+} else {
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.0";
+        const CURRENT_VERSION = "v1.2.1";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
@@ -152,6 +698,7 @@
 
             if (previousHolidayKey && !activeHolidayVariant && isHolidayStartupSong(currentSongInfo) && player && player.getPlayerState && player.getPlayerState() !== 1) {
                 currentSongInfo = null;
+                currentSongStopped = false;
                 initialSongLoaded = false;
                 renderQueue();
                 loadInitialPlayerSong();
@@ -183,6 +730,8 @@
             if(document.getElementById('settings-modal').style.display === 'flex') {
                 renderSettingsMessages();
             }
+
+            updateWidgetUrlDisplay();
 
             if(ws) {
                 ws.onclose = null; 
@@ -245,12 +794,23 @@
 		//	{ key: 'TEST', className: 'theme-christmas', messageKey: 'ui_holiday_christmas', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: 'aAkMkVFwAoo', title: 'Mariah Carey - All I Want for Christmas Is You', author: 'Mariah Carey', duration: 241, user: 'Auto' } },
 		//	{ key: 'TEST', className: 'theme-newyear', messageKey: 'ui_holiday_newyear', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: '9jK-NcRmVcw', title: 'Europe - The Final Countdown', author: 'Europe', duration: 318, user: 'Auto' } },
 		// 	{ key: 'TEST', className: 'theme-valentine', messageKey: 'ui_holiday_valentine', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: '2Vv-BfVoq4g', title: 'Ed Sheeran - Perfect', author: 'Ed Sheeran', duration: 263, user: 'Auto' } },
-		//	{ key: 'TEST', className: 'theme-april', messageKey: 'ui_holiday_april', ranges: ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', author: 'Rick Astley', duration: 213, user: 'Auto' } }
+		//	{ key: 'TEST', className: 'theme-april', messageKey: 'ui_holiday_april', ranges: [{ sm: 0, sd: 1, em: 11, ed: 31 }], song: { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', author: 'Rick Astley', duration: 213, user: 'Auto' } },
             { key: 'christmas', className: 'theme-christmas', messageKey: 'ui_holiday_christmas', ranges: [{ sm: 11, sd: 24, em: 11, ed: 27 }], song: { id: 'aAkMkVFwAoo', title: 'Mariah Carey - All I Want for Christmas Is You', author: 'Mariah Carey', duration: 241, user: 'Auto' } },
             { key: 'newyear', className: 'theme-newyear', messageKey: 'ui_holiday_newyear', ranges: [{ sm: 11, sd: 31, em: 0, ed: 1 }], song: { id: '9jK-NcRmVcw', title: 'Europe - The Final Countdown', author: 'Europe', duration: 318, user: 'Auto' } },
             { key: 'valentine', className: 'theme-valentine', messageKey: 'ui_holiday_valentine', ranges: [{ sm: 1, sd: 14, em: 1, ed: 14 }], song: { id: '2Vv-BfVoq4g', title: 'Ed Sheeran - Perfect', author: 'Ed Sheeran', duration: 263, user: 'Auto' } },
             { key: 'april', className: 'theme-april', messageKey: 'ui_holiday_april', ranges: [{ sm: 3, sd: 1, em: 3, ed: 1 }], song: { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', author: 'Rick Astley', duration: 213, user: 'Auto' } }
         ];
+        const NOW_PLAYING_WIDGET_KEY = 'ytm_now_playing_widget_state';
+        const NOW_PLAYING_WIDGET_CHANNEL = 'ytm_now_playing_widget';
+        const NOW_PLAYING_STREAMERBOT_ACTION = 'NowPlayingWidgetState';
+        const NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL = 500;
+        let nowPlayingWidgetChannel = null;
+        let lastNowPlayingStreamerBotPush = 0;
+        try {
+            if ('BroadcastChannel' in window) nowPlayingWidgetChannel = new BroadcastChannel(NOW_PLAYING_WIDGET_CHANNEL);
+        } catch (error) {
+            nowPlayingWidgetChannel = null;
+        }
         // =========================================================================
         
         let player, ws, wsReconnectTimeout;
@@ -258,6 +818,13 @@
         let playQueue = [];     
         let playHistory = [];   
         let currentSongInfo = null; 
+        let currentSongStopped = false;
+        let nowPlayingWaveEffect = '';
+        let nowPlayingWaveEffectUntil = 0;
+        let nowPlayingWaveEffectId = 0;
+        let nowPlayingWaveHoldUntilStart = false;
+        let skipTransitionTimeout = null;
+        let stopTransitionTimeout = null;
         let titleCache = {};    
         let dragSourceIndex = null;
         let isSrEnabled = false; 
@@ -269,11 +836,11 @@
                 openChangelog, openTutorial, closeSettings, switchSettingsTab,
                 saveWsConfig, toggleApiVisibility, saveApiKey, closeChangelog,
                 clearAllBans, closeBanList, closePlaylistManager, addBasePlaylist,
-                closeTutorial, copySbCode
+                closeTutorial, copySbCode, copyWidgetUrl
             };
 
             const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings };
-            const inputHandlers = { renderBaseList, updateTutLink, saveSongRequestSettings };
+            const inputHandlers = { renderBaseList, updateTutLink, saveSongRequestSettings, updateWidgetUrlDisplay };
 
             document.querySelectorAll('[data-action]').forEach(el => {
                 el.addEventListener('click', () => {
@@ -318,6 +885,7 @@
         window.addEventListener('focus', refreshHolidayVariant);
         window.addEventListener('pageshow', refreshHolidayVariant);
         setInterval(refreshHolidayVariant, 30000);
+        setInterval(updateNowPlayingProgress, 500);
         
         window.onload = () => { 
             applyTranslations(); 
@@ -327,6 +895,7 @@
         // ===================== SETTINGS MODAL =====================
         function openSettings() { 
             document.getElementById('api-key-input').value = API_KEY;
+            updateWidgetUrlDisplay();
             renderSettingsMessages();
             document.getElementById('settings-modal').style.display = 'flex'; 
         }
@@ -374,10 +943,12 @@
                 const snapshot = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY));
                 if (!snapshot || (!snapshot.currentSongInfo && (!Array.isArray(snapshot.playQueue) || snapshot.playQueue.length === 0))) return false;
                 currentSongInfo = normalizeSongForStorage(snapshot.currentSongInfo);
+                currentSongStopped = false;
                 playQueue = Array.isArray(snapshot.playQueue) ? snapshot.playQueue.map(normalizeSongForStorage).filter(Boolean) : [];
 
                 if (isHolidayStartupSong(currentSongInfo) && !activeHolidayVariant) {
                     currentSongInfo = null;
+                    currentSongStopped = false;
                     if (playQueue.length === 0) {
                         localStorage.removeItem(QUEUE_STORAGE_KEY);
                         return false;
@@ -486,6 +1057,7 @@
                 document.getElementById('tut-ws-port').value = WS_PORT; 
                 log(`🔌 WS Port: ${WS_PORT} | Pass: ${WS_PASS ? 'YES' : 'NO'}`, "warn");
                 
+                updateWidgetUrlDisplay();
                 if(ws) {
                     ws.onclose = null; 
                     ws.close();
@@ -494,6 +1066,66 @@
                 }
             }
         }
+
+        function getWidgetUrlBase() {
+            try {
+                if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+                    const url = new URL(window.location.href);
+                    const basePath = url.pathname.endsWith('/') ? url.pathname : url.pathname.replace(/[^\/]*$/, '');
+                    url.pathname = basePath + 'now-playing-widget.html';
+                    url.search = '';
+                    url.hash = '';
+                    return url;
+                }
+            } catch (error) {}
+            return new URL('http://localhost:7474/ytm/now-playing-widget.html');
+        }
+
+        function getWidgetUrl() {
+            const url = getWidgetUrlBase();
+            const portInput = document.getElementById('ws-port-input');
+            const passInput = document.getElementById('ws-pass-input');
+            const port = (portInput && portInput.value.trim()) ? portInput.value.trim() : WS_PORT;
+            const pass = passInput ? passInput.value.trim() : WS_PASS;
+
+            if (port && port !== '8080') url.searchParams.set('port', port);
+            if (pass) url.searchParams.set('pass', pass);
+            if (currentLang) url.searchParams.set('lang', currentLang);
+            return url.toString();
+        }
+
+        function updateWidgetUrlDisplay() {
+            const output = document.getElementById('widget-url-output');
+            if (output) output.value = getWidgetUrl();
+        }
+
+        function copyWidgetUrl() {
+            updateWidgetUrlDisplay();
+            const output = document.getElementById('widget-url-output');
+            if (!output) return;
+            output.focus();
+            output.select();
+            output.setSelectionRange(0, 99999);
+
+            const done = () => {
+                const btn = document.getElementById('btn-copy-widget-url');
+                if (!btn) return;
+                const oldText = btn.innerText;
+                btn.innerText = t('ui_widget_copied');
+                setTimeout(() => { btn.innerText = t('ui_widget_copy') || oldText; }, 1200);
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(output.value).then(done).catch(() => {
+                    document.execCommand('copy');
+                    done();
+                });
+            } else {
+                document.execCommand('copy');
+                done();
+            }
+        }
+
         // ====================================================================
 
         function updateApiStatusUI(status) {
@@ -778,6 +1410,318 @@
             return (h * 3600) + (m * 60) + s;
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>\"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
+        }
+
+        const coverThemeCache = new Map();
+
+        function normalizeCoverThemeColor(color) {
+            const luma = (color.r * 0.2126) + (color.g * 0.7152) + (color.b * 0.0722);
+            let mixTarget = null;
+            let mixAmount = 0;
+
+            if (luma < 58) {
+                mixTarget = { r: 125, g: 135, b: 145 };
+                mixAmount = 0.38;
+            } else if (luma > 178) {
+                mixTarget = { r: 64, g: 68, b: 74 };
+                mixAmount = 0.42;
+            }
+
+            if (!mixTarget) return color;
+            return {
+                r: Math.round(color.r * (1 - mixAmount) + mixTarget.r * mixAmount),
+                g: Math.round(color.g * (1 - mixAmount) + mixTarget.g * mixAmount),
+                b: Math.round(color.b * (1 - mixAmount) + mixTarget.b * mixAmount)
+            };
+        }
+
+        function readAverageCoverColor(src) {
+            if (!src) return Promise.reject(new Error('No cover source'));
+            if (coverThemeCache.has(src)) return Promise.resolve(coverThemeCache.get(src));
+
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.crossOrigin = 'anonymous';
+                image.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const size = 24;
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                        ctx.drawImage(image, 0, 0, size, size);
+
+                        const data = ctx.getImageData(0, 0, size, size).data;
+                        let r = 0;
+                        let g = 0;
+                        let b = 0;
+                        let count = 0;
+
+                        for (let i = 0; i < data.length; i += 4) {
+                            if (data[i + 3] < 32) continue;
+                            r += data[i];
+                            g += data[i + 1];
+                            b += data[i + 2];
+                            count += 1;
+                        }
+
+                        if (!count) throw new Error('No readable cover pixels');
+                        const color = normalizeCoverThemeColor({
+                            r: Math.round(r / count),
+                            g: Math.round(g / count),
+                            b: Math.round(b / count)
+                        });
+                        coverThemeCache.set(src, color);
+                        resolve(color);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                image.onerror = reject;
+                image.src = src;
+            });
+        }
+
+        function applyCoverThemeToNowPlayingCard(card, src) {
+            if (!card || !src) return;
+            card.dataset.coverThemeSrc = src;
+
+            readAverageCoverColor(src).then(color => {
+                if (card.dataset.coverThemeSrc !== src) return;
+                card.style.setProperty('--np-cover-rgb', color.r + ', ' + color.g + ', ' + color.b);
+            }).catch(() => {});
+        }
+
+        function getNowPlayingWaveBarHeight(index) {
+            const height = 55 + Math.sin(index * 0.83) * 11 + Math.sin(index * 1.71 + 0.9) * 8 + Math.sin(index * 0.29 + 2.4) * 6;
+            return Math.round(Math.min(78, Math.max(34, height)));
+        }
+
+        function getNowPlayingWaveBarCount(width) {
+            if (!width) return 28;
+            return Math.min(96, Math.max(18, Math.round(width / 9)));
+        }
+
+        function createNowPlayingWaveBars(count = 28) {
+            return Array.from({ length: count }, (_, index) => {
+                const height = getNowPlayingWaveBarHeight(index);
+                const stagger = (index * 0.026).toFixed(3);
+                const skipStagger = ((((index * 37) % 29) * 0.006) + (((index * 11) % 5) * 0.002)).toFixed(3);
+                const skipX = ((index % 2 ? -1 : 1) * (4 + (index % 4))).toFixed(1) + 'px';
+                const skipXAlt = ((index % 2 ? 1 : -1) * (3 + (index % 5))).toFixed(1) + 'px';
+                const skipXSoft = ((index % 2 ? -1 : 1) * (1.5 + (index % 3))).toFixed(1) + 'px';
+                const duration = (2.45 + ((index * 7) % 11) * 0.09).toFixed(2);
+                return '<i style="--bar-height: ' + height + '%; --bar-stagger: ' + stagger + 's; --bar-skip-stagger: ' + skipStagger + 's; --bar-skip-x: ' + skipX + '; --bar-skip-x-alt: ' + skipXAlt + '; --bar-skip-x-soft: ' + skipXSoft + '; --bar-duration: ' + duration + 's"></i>';
+            }).join('');
+        }
+
+        function seededNowPlayingRandom(seed, index, salt = 0) {
+            const numericSeed = Number(seed) || 1;
+            const value = Math.sin((numericSeed * 12.9898) + (index * 78.233) + (salt * 37.719)) * 43758.5453;
+            return value - Math.floor(value);
+        }
+
+        function randomizeNowPlayingSkipBars(waveEl, seed) {
+            if (!waveEl) return;
+            const bars = Array.from(waveEl.querySelectorAll('i'));
+            const ordered = bars
+                .map((bar, index) => ({ bar, index, order: seededNowPlayingRandom(seed, index, 1) }))
+                .sort((a, b) => a.order - b.order);
+
+            ordered.forEach(({ bar, index }, rank) => {
+                const jitter = seededNowPlayingRandom(seed, index, 2);
+                const direction = seededNowPlayingRandom(seed, index, 3) > 0.5 ? 1 : -1;
+                const strength = 4 + Math.round(seededNowPlayingRandom(seed, index, 4) * 5);
+                const reverseStrength = 3 + Math.round(seededNowPlayingRandom(seed, index, 5) * 4);
+
+                bar.style.setProperty('--bar-skip-stagger', (rank * 0.0019 + jitter * 0.014).toFixed(3) + 's');
+                bar.style.setProperty('--bar-skip-x', (direction * strength).toFixed(1) + 'px');
+                bar.style.setProperty('--bar-skip-x-alt', (-direction * reverseStrength).toFixed(1) + 'px');
+                bar.style.setProperty('--bar-skip-x-soft', (direction * strength * 0.35).toFixed(1) + 'px');
+            });
+        }
+
+        function syncNowPlayingWaveBars(waveEl) {
+            if (!waveEl) return;
+            const width = waveEl.clientWidth || waveEl.getBoundingClientRect().width;
+            const count = getNowPlayingWaveBarCount(width);
+            if (waveEl.dataset.barCount !== String(count)) {
+                waveEl.innerHTML = createNowPlayingWaveBars(count);
+                waveEl.dataset.barCount = String(count);
+            }
+        }
+
+        function renderNowPlayingCard(song, options = {}) {
+            const prefix = options.prefix || 'now-playing';
+            const dropAttrs = options.dropTarget ? 'ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"' : '';
+            const banButton = options.showBan ? '<button class="np-card-ban" onclick="banCurrentSong()" title="Ban">&#128296;</button>' : '';
+            const title = escapeHtml(song.title || 'Unknown Title');
+            const author = escapeHtml(cleanAuthorName(song.author || 'YouTube'));
+            const user = song.user === 'Auto' ? 'Auto' : escapeHtml(song.user || 'Viewer');
+            const thumbnail = 'https://i.ytimg.com/vi/' + escapeHtml(song.id) + '/mqdefault.jpg';
+
+            return '<div id="' + prefix + '-card" class="now-playing-card ' + (options.className || '') + '" ' + dropAttrs + '>' +
+                '<img class="np-card-cover" src="' + thumbnail + '" alt="">' +
+                '<div class="np-card-main">' +
+                    '<div class="np-card-info">' +
+                        '<div class="np-card-title" title="' + title + '">' + title + '</div>' +
+                        '<div class="np-card-author" title="' + author + '">' + author + '</div>' +
+                    '</div>' +
+                    '<div class="np-card-meter">' +
+                        '<span id="' + prefix + '-current" class="np-card-time">0:00</span>' +
+                        '<div id="' + prefix + '-wave" class="np-card-wave" aria-hidden="true">' + createNowPlayingWaveBars() + '</div>' +
+                        '<span id="' + prefix + '-duration" class="np-card-time">' + formatTime(song.duration || 0) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<span class="np-card-user">' + user + '</span>' +
+                banButton +
+                '<div class="np-card-progress"><div id="' + prefix + '-progress" class="np-card-progress-fill"></div></div>' +
+            '</div>';
+        }
+
+        function getNowPlayingWidgetState() {
+            if (!currentSongInfo || currentSongStopped) {
+                return { type: 'NOW_PLAYING_STATE', hasSong: false, currentTime: 0, duration: 0, progress: 0, isPlaying: false, isStopped: !!currentSongStopped, waveHold: false, updatedAt: Date.now() };
+            }
+
+            const playerDuration = player && player.getDuration ? Math.floor(player.getDuration()) : 0;
+            const duration = playerDuration > 0 ? playerDuration : (currentSongInfo.duration || 0);
+            const rawCurrentTime = player && player.getCurrentTime ? Math.max(0, player.getCurrentTime()) : 0;
+            const currentTime = Math.floor(rawCurrentTime);
+            const playerState = player && player.getPlayerState ? player.getPlayerState() : 0;
+            const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
+            const activeWaveEffect = nowPlayingWaveEffectUntil > Date.now() ? nowPlayingWaveEffect : '';
+            const waveEnding = playerState === 1 && duration > 0 && (duration - rawCurrentTime) <= 1.8;
+
+            return {
+                type: 'NOW_PLAYING_STATE',
+                hasSong: true,
+                id: currentSongInfo.id,
+                title: currentSongInfo.title || 'Unknown Title',
+                author: cleanAuthorName(currentSongInfo.author || 'YouTube'),
+                user: currentSongInfo.user || 'Auto',
+                thumbnail: 'https://i.ytimg.com/vi/' + currentSongInfo.id + '/mqdefault.jpg',
+                currentTime,
+                duration,
+                progress,
+                isPlaying: playerState === 1,
+                waveEnding,
+                waveEffect: activeWaveEffect,
+                waveEffectId: activeWaveEffect ? nowPlayingWaveEffectId : 0,
+                waveHold: nowPlayingWaveHoldUntilStart && activeWaveEffect !== 'skip',
+                isStopped: false,
+                playerState,
+                updatedAt: Date.now()
+            };
+        }
+
+        function updateNowPlayingCardProgress(prefix, state) {
+            const card = document.getElementById(prefix + '-card');
+            const currentEl = document.getElementById(prefix + '-current');
+            const durationEl = document.getElementById(prefix + '-duration');
+            const progressEl = document.getElementById(prefix + '-progress');
+            const waveEl = document.getElementById(prefix + '-wave');
+            const isSkipEffect = state.waveEffect === 'skip';
+            const isFadeEffect = state.waveEffect === 'fade';
+            const isWaveHeld = !!state.waveHold && !isSkipEffect;
+
+            if (currentEl) currentEl.innerText = formatTime(state.currentTime || 0);
+            if (durationEl) durationEl.innerText = formatTime(state.duration || 0);
+            if (progressEl) progressEl.style.width = (state.progress || 0) + '%';
+            if (waveEl) {
+                waveEl.style.setProperty('--np-progress', (state.progress || 0) + '%');
+                syncNowPlayingWaveBars(waveEl);
+            }
+            if (card) {
+                const skipEffectId = String(state.waveEffectId || (isSkipEffect ? state.updatedAt || Date.now() : ''));
+                if (isSkipEffect && card.dataset.skipEffectId !== skipEffectId) {
+                    card.dataset.skipEffectId = skipEffectId;
+                    randomizeNowPlayingSkipBars(waveEl, skipEffectId);
+                    card.classList.remove('is-skipping');
+                    void card.offsetWidth;
+                } else if (!isSkipEffect) {
+                    card.dataset.skipEffectId = '';
+                }
+
+                card.classList.toggle('is-playing', !!state.isPlaying && !state.waveEnding && !isSkipEffect && !isFadeEffect && !isWaveHeld);
+                card.classList.toggle('is-wave-ending', !!state.waveEnding);
+                card.classList.toggle('is-skipping', isSkipEffect);
+                card.classList.toggle('is-wave-fading', isFadeEffect);
+                card.classList.toggle('is-wave-held', isWaveHeld);
+            }
+        }
+
+        function publishNowPlayingWidgetStateToStreamerBot(state, force = false) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const now = Date.now();
+            if (!force && now - lastNowPlayingStreamerBotPush < NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL) return;
+            lastNowPlayingStreamerBotPush = now;
+
+            try {
+                ws.send(JSON.stringify({
+                    request: 'DoAction',
+                    action: { name: NOW_PLAYING_STREAMERBOT_ACTION },
+                    args: { stateJson: JSON.stringify(state) },
+                    id: 'NowPlayingWidgetState'
+                }));
+            } catch (error) {}
+        }
+
+        function publishNowPlayingWidgetState(state = getNowPlayingWidgetState(), forceStreamerBot = false) {
+            try {
+                localStorage.setItem(NOW_PLAYING_WIDGET_KEY, JSON.stringify(state));
+            } catch (error) {}
+
+            if (nowPlayingWidgetChannel) {
+                try { nowPlayingWidgetChannel.postMessage(state); } catch (error) {}
+            }
+
+            publishNowPlayingWidgetStateToStreamerBot(state, forceStreamerBot);
+        }
+
+        function updateNowPlayingProgress() {
+            const state = getNowPlayingWidgetState();
+            updateNowPlayingCardProgress('panel-now-playing', state);
+            publishNowPlayingWidgetState(state);
+        }
+
+        function triggerNowPlayingWaveEffect(effect, durationMs = 520) {
+            nowPlayingWaveEffect = effect;
+            nowPlayingWaveEffectUntil = Date.now() + durationMs;
+            nowPlayingWaveEffectId = (nowPlayingWaveEffectId + 1) % 1000000;
+            const state = getNowPlayingWidgetState();
+            updateNowPlayingCardProgress('panel-now-playing', state);
+            publishNowPlayingWidgetState(state, true);
+        }
+
+        function clearNowPlayingWaveEffect() {
+            nowPlayingWaveEffect = '';
+            nowPlayingWaveEffectUntil = 0;
+        }
+
+        function stopCurrentSongWithWave() {
+            clearTimeout(stopTransitionTimeout);
+            nowPlayingWaveHoldUntilStart = false;
+            triggerNowPlayingWaveEffect('fade', 900);
+            player.stopVideo();
+            document.getElementById('now-playing-title').innerText = t('ui_stop_state');
+
+            stopTransitionTimeout = setTimeout(() => {
+                currentSongStopped = true;
+                clearNowPlayingWaveEffect();
+                stopTransitionTimeout = null;
+                publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
+            }, 760);
+        }
+
         function log(msg, type='normal') {
             const c = document.getElementById('log-content');
             const levelClass = type === 'error' ? 'log-error' : (type === 'warn' ? 'log-warn' : 'log-normal');
@@ -866,6 +1810,7 @@
             if (!song || !player || initialSongLoaded || currentSongInfo) return;
             initialSongLoaded = true;
             currentSongInfo = normalizeSongForStorage({ ...song, user: 'Auto', isStartup: true });
+            currentSongStopped = false;
             currentSongInfo.isStartup = true;
             player.cueVideoById(currentSongInfo.id);
             document.getElementById('now-playing-title').innerText = currentSongInfo.title;
@@ -997,14 +1942,21 @@
         }
 
         function playNext() {
+            clearTimeout(skipTransitionTimeout);
+            clearTimeout(stopTransitionTimeout);
+            skipTransitionTimeout = null;
+            stopTransitionTimeout = null;
+            clearNowPlayingWaveEffect();
             if(currentSongInfo) playHistory.push(currentSongInfo);
             
             if (playQueue.length > 0) {
                 currentSongInfo = playQueue.shift();
+                currentSongStopped = false;
                 player.loadVideoById(currentSongInfo.id);
                 renderQueue();
             } else {
                 currentSongInfo = null;
+                currentSongStopped = false;
                 document.getElementById('now-playing-title').innerText = t('ui_waiting_start');
                 document.getElementById('now-playing-meta').innerText = "---";
                 renderQueue();
@@ -1014,13 +1966,39 @@
 
         function onPlayerStateChange(e) {
             if (e.data === 0) playNext(); 
+            if (e.data === 2 && currentSongInfo && !currentSongStopped) {
+                triggerNowPlayingWaveEffect('fade', 900);
+            }
             if (e.data === 1) {            
+                currentSongStopped = false;
+                nowPlayingWaveHoldUntilStart = false;
+                clearTimeout(stopTransitionTimeout);
+                stopTransitionTimeout = null;
+                clearNowPlayingWaveEffect();
                 document.getElementById('now-playing-title').innerText = currentSongInfo.title;
                 document.getElementById('now-playing-meta').innerText = currentSongInfo.user === "Auto" ? `Auto` : `👤 ${currentSongInfo.user}`;
             }
         }
 
-        function skipSong() { log("⏭️ SKIP", "warn"); playNext(); }
+        function skipSong() {
+            log("⏭️ SKIP", "warn");
+            if (!currentSongInfo) {
+                playNext();
+                return;
+            }
+
+            clearTimeout(skipTransitionTimeout);
+            triggerNowPlayingWaveEffect('skip', 820);
+            skipTransitionTimeout = setTimeout(() => {
+                nowPlayingWaveHoldUntilStart = true;
+                nowPlayingWaveEffect = '';
+                nowPlayingWaveEffectUntil = 0;
+                skipTransitionTimeout = null;
+                lastNowPlayingStreamerBotPush = 0;
+                publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
+                playNext();
+            }, 680);
+        }
         
         function togglePlay() { 
             if (!currentSongInfo) {
@@ -1032,13 +2010,22 @@
                 return;
             }
 
-            if(player.getPlayerState() === 1) { player.pauseVideo(); } 
-            else { player.playVideo(); }
+            if(player.getPlayerState() === 1) {
+                triggerNowPlayingWaveEffect('fade', 900);
+                player.pauseVideo();
+            } 
+            else {
+                currentSongStopped = false;
+                nowPlayingWaveHoldUntilStart = false;
+                clearTimeout(stopTransitionTimeout);
+                stopTransitionTimeout = null;
+                clearNowPlayingWaveEffect();
+                player.playVideo();
+            }
         }
         
         function stopSongUI() { 
-            player.stopVideo(); 
-            document.getElementById('now-playing-title').innerText = t('ui_stop_state'); 
+            stopCurrentSongWithWave();
         }
 
         function playFromChat(user) {
@@ -1058,6 +2045,10 @@
             }
 
             if (player.getPlayerState() !== 1) {
+                currentSongStopped = false;
+                clearTimeout(stopTransitionTimeout);
+                stopTransitionTimeout = null;
+                clearNowPlayingWaveEffect();
                 player.playVideo();
                 sendChatMessage(t('msg_resumed', {user: user}));
             } else {
@@ -1067,6 +2058,7 @@
 
         function pauseFromChat(user) {
             if (currentSongInfo && player.getPlayerState() === 1) {
+                triggerNowPlayingWaveEffect('fade', 900);
                 player.pauseVideo();
                 sendChatMessage(t('msg_paused', {user: user}));
             } else {
@@ -1076,8 +2068,7 @@
 
         function stopFromChat(user) {
             if (currentSongInfo && player.getPlayerState() !== 5) {
-                player.stopVideo();
-                document.getElementById('now-playing-title').innerText = t('ui_stop_state');
+                stopCurrentSongWithWave();
                 sendChatMessage(t('msg_stopped', {user: user}));
             } else {
                 sendChatMessage(t('msg_nothing_playing', {user: user}));
@@ -1088,6 +2079,7 @@
             if (playHistory.length > 0) {
                 if(currentSongInfo) playQueue.unshift(currentSongInfo);
                 currentSongInfo = playHistory.pop();
+                currentSongStopped = false;
                 player.loadVideoById(currentSongInfo.id);
                 renderQueue();
             } else player.seekTo(0); 
@@ -1247,21 +2239,11 @@
             document.getElementById('queue-time').innerText = `⏱️ ${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
 
             if (currentSongInfo) {
-                nowPlayingBox.innerHTML = `
-                <div class="q-item playing" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
-                    <div class="eq-block"><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div></div>
-                    <img src="https://i.ytimg.com/vi/${currentSongInfo.id}/default.jpg">
-                    <div class="track-info">
-                        <div class="track-title ex-style-069">${currentSongInfo.title}</div>
-                        <div class="track-meta">
-                            ${currentSongInfo.user !== 'Auto' ? `<span class="badge ${currentSongInfo.user === 'Streamer' ? 'badge-manual' : 'badge-user'}">${currentSongInfo.user}</span>` : `<span class="badge badge-auto">🤖 Auto</span>`}
-                            <span class="badge badge-time">⏱️ ${formatTime(currentSongInfo.duration)}</span>
-                            <span class="badge badge-author">🎤 ${currentSongInfo.author}</span>
-                        </div>
-                    </div>
-                    <button class="btn-ban ex-style-070" onclick="banCurrentSong()" title="Ban">🔨</button>
-                </div>`;
+                nowPlayingBox.innerHTML = renderNowPlayingCard(currentSongInfo, { prefix: 'panel-now-playing', dropTarget: true, showBan: true, className: 'panel-card' });
+                applyCoverThemeToNowPlayingCard(document.getElementById('panel-now-playing-card'), 'https://i.ytimg.com/vi/' + currentSongInfo.id + '/mqdefault.jpg');
             } else nowPlayingBox.innerHTML = `<div class="ex-style-013">${t('ui_no_song')}</div>`;
+
+            updateNowPlayingProgress();
 
             if (playQueue.length === 0) { queueContainer.innerHTML = `<div class="ex-style-071">---</div>`; savePersistedQueue(); return; }
             
@@ -1291,7 +2273,8 @@
                     <button class="btn-remove" onclick="removeSongFromUI(${i})" title="Remove">❌</button>
                 </div>`;
             }).join('');
-                    savePersistedQueue();
+            savePersistedQueue();
+            updateNowPlayingProgress();
         }
 
         function renderBaseList() {
@@ -1466,3 +2449,22 @@
                 wsReconnectTimeout = setTimeout(connectWebsocket, 5000); 
             };
         }
+
+
+Object.assign(window, {
+    onYouTubeIframeAPIReady,
+    saveCustomMsg,
+    resetCustomMsg,
+    removeBasePlaylist,
+    unbanSong,
+    handleDragStart,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    handleDragEnd,
+    banCurrentSong,
+    banSong,
+    removeSongFromUI,
+    fetchAndAddById
+});
+}
