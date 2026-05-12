@@ -19,6 +19,26 @@ FIX Kept queue duration and track count fully visible in the right-panel header 
 FIX Kept the OBS widget silent after auto-hiding from pause, stop, or idle until music starts again.
 FIX Prevented the waiting-for-player message from reappearing after its own 30-second auto-hide unless a real player connection returns.
 
+Release v1.2.0 (IMPORT TO STREAMERBOT IS REQUIRED!!!)
+📜 Changelog
+
+v1.2.0
+08.05.2026
+
+NEW Added editable !sr request limits for maximum track length and YouTube Music category filtering.
+IMPORT TO STREMERBOT IS REQUIRED!!! you can find it in HELP Section! Replace and enable commands in stremer bot!
+NEW Added optional queue persistence so the current queue can survive browser refreshes.
+NEW Added automatic startup track loading before playback begins, using YouTube Music most popular results when an API key is available.
+NEW Split the original single-file page into index.html, style.css, translations.js, and app.js while preserving the existing behavior.
+FIX Fixed Streamer.bot WebSocket password authentication by handling the Hello salt/challenge flow and sending the hashed authentication response before subscribing to events.
+CHANGE Moved static visual styles out of index.html into style.css, including previously inline styles.
+CHANGE Moved static UI event wiring out of index.html into app.js using data-action, data-change-action, and data-input-action attributes.
+CHANGE Updated the Help tutorial with queue persistence and request limit details.
+CHANGE Updated the Streamer.bot import string so !sr settings can be synced from the web interface after reimporting the actions.
+FIX Translated all source-code comments to English.
+FIX Track-too-long chat messages now use the configured duration limit instead of a hardcoded 15 minutes.
+FIX Restored language-specific diacritics in newly added Polish, French, German, and Turkish UI text.
+
 Release v1.1.0
 📜 Changelog
 
