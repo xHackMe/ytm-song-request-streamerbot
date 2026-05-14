@@ -7,6 +7,7 @@ const WIDGET_WS_PORT = widgetParams.get('port') || widgetParams.get('wsPort') ||
 const WIDGET_WS_PASS = widgetParams.get('pass') || widgetParams.get('password') || widgetParams.get('wsPass') || '';
 const WIDGET_LANG = widgetParams.get('lang') || widgetParams.get('language') || '';
 const WIDGET_STALE_MS = 3500;
+const WIDGET_CONNECTION_MESSAGE_DELAY_MS = 15000;
 const WIDGET_AUTO_HIDE_MS = 30000;
 let lastPayload = '';
 let activeWidgetSongKey = '';
@@ -429,32 +430,40 @@ function renderState(state) {
     }
 }
 
-function consumePayload(payload) {
-    if (!payload || payload === lastPayload) return;
-    lastPayload = payload;
+function consumePayload(payload, source = 'unknown') {
+    if (!payload) return;
     try {
         const state = JSON.parse(payload);
         if (!state || state.type !== 'NOW_PLAYING_STATE') return;
-        if (state.updatedAt && Date.now() - state.updatedAt > WIDGET_STALE_MS) {
+
+        const now = Date.now();
+        if (state.updatedAt && now - state.updatedAt > WIDGET_STALE_MS) {
+            const hasFreshState = lastWidgetStateAt && now - lastWidgetStateAt <= WIDGET_STALE_MS;
+            if (hasFreshState || source === 'storage' || source === 'storage-event') return;
+            if (!lastWidgetStateAt || now - lastWidgetStateAt < WIDGET_CONNECTION_MESSAGE_DELAY_MS) return;
+
             renderWidgetStatus('ui_widget_waiting_player', 'connection');
             return;
         }
 
-        lastWidgetStateAt = Date.now();
+        if (payload === lastPayload) return;
+
+        lastPayload = payload;
+        lastWidgetStateAt = now;
         renderState(state);
     } catch (error) {
         renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
 
-function handleWidgetState(state) {
+function handleWidgetState(state, source = 'message') {
     if (!state || state.type !== 'NOW_PLAYING_STATE') return;
-    consumePayload(JSON.stringify(state));
+    consumePayload(JSON.stringify(state), source);
 }
 
 function readStorageState() {
     try {
-        consumePayload(localStorage.getItem(STORAGE_KEY));
+        consumePayload(localStorage.getItem(STORAGE_KEY), 'storage');
     } catch (error) {}
 }
 
@@ -512,7 +521,7 @@ function connectWidgetWebsocket() {
                 return;
             }
 
-            handleWidgetState(unwrapStreamerBotPayload(raw));
+            handleWidgetState(unwrapStreamerBotPayload(raw), 'streamerbot');
         } catch (error) {}
     };
 
@@ -524,16 +533,16 @@ function connectWidgetWebsocket() {
 try {
     if ('BroadcastChannel' in window) {
         const channel = new BroadcastChannel(CHANNEL_NAME);
-        channel.onmessage = event => handleWidgetState(event.data);
+        channel.onmessage = event => handleWidgetState(event.data, 'broadcast');
     }
 } catch (error) {}
 
 window.addEventListener('storage', event => {
-    if (event.key === STORAGE_KEY) consumePayload(event.newValue);
+    if (event.key === STORAGE_KEY) consumePayload(event.newValue, 'storage-event');
 });
 
 function monitorWidgetConnection() {
-    if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_STALE_MS) {
+    if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_CONNECTION_MESSAGE_DELAY_MS) {
         renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
@@ -547,7 +556,7 @@ setInterval(monitorWidgetConnection, 1000);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.1";
+        const CURRENT_VERSION = "v1.2.1a";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
