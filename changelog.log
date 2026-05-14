@@ -4,8 +4,12 @@ Release v1.2.1a
 v1.2.1a
 14.05.2026
 
-FIX Ignored stale localStorage widget snapshots when fresh Streamer.bot, BroadcastChannel, or storage-event state is available to prevent alternating widget/waiting flicker.
+NEW Added an editable WebSocket server address setting with 127.0.0.1 as the default.
 CHANGE Delayed the OBS widget waiting-for-player message until the connection has been missing for 15 seconds.
+CHANGE Added the WebSocket server address to the generated OBS widget URL and widget connection logic.
+FIX Ignored stale localStorage widget snapshots when fresh Streamer.bot, BroadcastChannel, or storage-event state is available to prevent alternating widget/waiting flicker.
+FIX Rebuilt the i18n dictionary with complete UTF-8 translations for English, Polish, German, French, and Turkish.
+FIX Kept all UI translation keys covered so language switching updates the whole interface again.
 
 Release v1.2.1 (IMPORT TO STREMERBOT IS REQUIRED!!!)
 📜 Changelog

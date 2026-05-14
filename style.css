@@ -191,6 +191,8 @@
         .btn-widget-copy { background: var(--manual); color: #fff; border: none; border-radius: 6px; padding: 0 14px; font-weight: 900; cursor: pointer; transition: 0.2s; white-space: nowrap; }
         .btn-widget-copy:hover { background: var(--accent); color: #000; transform: translateY(-1px); }
         .widget-url-hint { color: #888; font-size: 0.75em; line-height: 1.35; margin-top: 8px; }
+        .ws-host-field { min-width: 180px; }
+        .ws-host-input { width: 180px; margin: 0; }
         @media (max-width: 700px) { .widget-url-box { flex-direction: column; } .btn-widget-copy { padding: 10px 14px; } }
 
 

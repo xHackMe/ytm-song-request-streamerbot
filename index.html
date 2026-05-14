@@ -5,7 +5,7 @@
     <title>YTM Song Request</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     
-    <link rel="stylesheet" href="style.css?v=20260514-widget32">
+    <link rel="stylesheet" href="style.css?v=20260514-widget38">
 </head>
 <body>
 
@@ -155,8 +155,12 @@
                     </div>
 
                     <div class="settings-row">
-                        <label>WebSocket Server (Streamer.bot)</label>
+                        <label data-i18n="ui_ws_server_title">WebSocket Server (Streamer.bot)</label>
                         <div class="ex-style-019">
+                            <div class="ex-style-020 ws-host-field">
+                                <span data-i18n="ui_ws_server" class="ex-style-021">Server address</span>
+                                <input type="text" id="ws-host-input" class="api-input ws-host-input" value="127.0.0.1" placeholder="127.0.0.1" data-input-action="updateWidgetUrlDisplay">
+                            </div>
                             <div class="ex-style-020">
                                 <span data-i18n="ui_ws_port" class="ex-style-021">Port</span>
                                 <input type="number" id="ws-port-input" class="api-input ex-style-022" value="8080" data-input-action="updateWidgetUrlDisplay">
@@ -375,7 +379,7 @@
         </div>
     </div>
 
-    <script src="translations.js?v=20260514-widget32"></script>
-    <script src="app.js?v=20260514-widget32"></script>
+    <script src="translations.js?v=20260514-widget38"></script>
+    <script src="app.js?v=20260514-widget38"></script>
 </body>
 </html>
