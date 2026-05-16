@@ -1,21 +1,24 @@
-Release v1.2.1a
-📜 Changelog
+Release v1.2.2
+📜 Changelog 16.05.2026
 
-v1.2.1a
-14.05.2026
+NEW Added an optional OBS widget audio mode that appends audio=1 to the widget URL and syncs a hidden YouTube player in the widget.
+NEW Added a widget URL replacement warning that appears when widget-link settings change and the OBS URL should be replaced.
+CHANGE Added translated widget audio and widget URL warning text for all supported languages.
+
+Release v1.2.1a
+📜 Changelog 16.05.2026
 
 NEW Added an editable WebSocket server address setting with 127.0.0.1 as the default.
+NEW Added Ukrainian language support across the UI, HELP tutorial, chat messages, and OBS widget text.
 CHANGE Delayed the OBS widget waiting-for-player message until the connection has been missing for 15 seconds.
 CHANGE Added the WebSocket server address to the generated OBS widget URL and widget connection logic.
+CHANGE Added Ukrainian to both language selectors.
 FIX Ignored stale localStorage widget snapshots when fresh Streamer.bot, BroadcastChannel, or storage-event state is available to prevent alternating widget/waiting flicker.
-FIX Rebuilt the i18n dictionary with complete UTF-8 translations for English, Polish, German, French, and Turkish.
+FIX Rebuilt the i18n dictionary with complete UTF-8 translations for English, Polish, Ukrainian, German, French, and Turkish.
 FIX Kept all UI translation keys covered so language switching updates the whole interface again.
 
 Release v1.2.1 (IMPORT TO STREMERBOT IS REQUIRED!!!)
-📜 Changelog
-
-v1.2.1
-12.05.2026
+📜 Changelog 12.05.2026
 
 NEW Added a standalone transparent OBS Now Playing widget page with cover art, elapsed time, duration, waveform, and progress bar.
 NEW Added an OBS widget configuration section in Settings with an auto-generated Browser Source URL.
@@ -33,10 +36,7 @@ FIX Kept the OBS widget silent after auto-hiding from pause, stop, or idle until
 FIX Prevented the waiting-for-player message from reappearing after its own 30-second auto-hide unless a real player connection returns.
 
 Release v1.2.0 (IMPORT TO STREAMERBOT IS REQUIRED!!!)
-📜 Changelog
-
-v1.2.0
-08.05.2026
+📜 Changelog08.05.2026
 
 NEW Added editable !sr request limits for maximum track length and YouTube Music category filtering.
 IMPORT TO STREMERBOT IS REQUIRED!!! you can find it in HELP Section! Replace and enable commands in stremer bot!
@@ -53,10 +53,7 @@ FIX Track-too-long chat messages now use the configured duration limit instead o
 FIX Restored language-specific diacritics in newly added Polish, French, German, and Turkish UI text.
 
 Release v1.1.0
-📜 Changelog
-
-v1.1.0
-07.05.2026
+📜 Changelog 07.05.2026
 
 NEW Massive UI Clean-up! Middle panel refactored using CSS Grid. Statuses are now perfectly aligned on the left, a large !SR ON/OFF toggle in the center, and the Settings gear (⚙️) on the right.
 NEW Multi-language System (i18n) expanded! Fully implemented translation system supporting English, Polish, German, French, and Turkish.
@@ -72,10 +69,8 @@ FIX Changed default suggested tutorial path from YTM to ytm.
 FIX Tutorial window now includes a quick language selector and updated instructions reflecting the new UI layout.
 
 First Official Release v1.0.0a
-📜 Changelog
+📜 Changelog 06.05.2026
 
-v1.0.0a
-06.05.2026
 NEW GitHub implementation and final project structuring.
 FIX Fixed a visual bug where changing the language displayed a false "Connecting" status for the WebSocket. The connection now automatically refreshes upon language change.
 

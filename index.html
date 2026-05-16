@@ -5,7 +5,7 @@
     <title>YTM Song Request</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     
-    <link rel="stylesheet" href="style.css?v=20260514-widget38">
+    <link rel="stylesheet" href="style.css?v=20260516-widget40">
 </head>
 <body>
 
@@ -148,6 +148,7 @@
                         <select id="lang-select" class="lang-select ex-style-018" data-change-action="changeLanguage">
                             <option value="en">English</option>
                             <option value="pl">Polski</option>
+                            <option value="uk">Українська</option>
                             <option value="de">Deutsch</option>
                             <option value="fr">Français</option>
                             <option value="tr">Türkçe</option>
@@ -177,11 +178,20 @@
                     <div class="settings-row widget-config-row">
                         <label data-i18n="ui_widget_config_title">OBS Widget Configuration</label>
                         <div class="settings-help" data-i18n="ui_widget_config_desc">Use this generated URL as the Browser Source address in OBS.</div>
+                        <div class="widget-option-row">
+                            <label class="settings-checkbox">
+                                <input type="checkbox" id="widget-audio-cb" data-change-action="handleWidgetAudioToggle">
+                                <span data-i18n="ui_widget_audio_toggle">Play audio also in the OBS widget</span>
+                            </label>
+                            <small data-i18n="ui_widget_audio_desc">Off by default. Enable only if you want OBS to capture the widget as a separate audio source.</small>
+                        </div>
+                        <small data-i18n="ui_widget_link_notice" class="widget-url-hint">After every change that requires a new widget link, a warning will appear here so you know to replace the OBS URL.</small>
                         <span data-i18n="ui_widget_url_label" class="ex-style-021">Widget URL for OBS</span>
                         <div class="widget-url-box">
                             <input type="text" id="widget-url-output" class="api-input widget-url-output" readonly>
                             <button id="btn-copy-widget-url" data-action="copyWidgetUrl" data-i18n="ui_widget_copy" class="btn-widget-copy">Copy OBS URL</button>
                         </div>
+                        <div id="widget-url-warning" class="widget-url-warning is-hidden" data-i18n="ui_widget_url_warning">Widget URL changed. Copy the new link and replace it in OBS.</div>
                         <small data-i18n="ui_widget_url_hint" class="widget-url-hint">The link updates automatically from the current page address and WebSocket settings.</small>
                     </div>
 
@@ -292,6 +302,7 @@
                     <select id="tut-lang-select" class="lang-select ex-style-051" data-change-action="changeLanguage">
                         <option value="en">EN</option>
                         <option value="pl">PL</option>
+                        <option value="uk">UK</option>
                         <option value="de">DE</option>
                         <option value="fr">FR</option>
                         <option value="tr">TR</option>
@@ -379,7 +390,7 @@
         </div>
     </div>
 
-    <script src="translations.js?v=20260514-widget38"></script>
-    <script src="app.js?v=20260514-widget38"></script>
+    <script src="translations.js?v=20260516-widget40"></script>
+    <script src="app.js?v=20260516-widget40"></script>
 </body>
 </html>

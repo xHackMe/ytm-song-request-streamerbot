@@ -27,6 +27,10 @@ function buildStreamerBotWebsocketUrl(host, port) {
     return 'ws://' + formatWebsocketHostForUrl(normalizeWebsocketHost(host)) + ':' + String(port || '8080').trim() + '/';
 }
 
+function isTruthyParam(value) {
+    return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
 if (document.body.classList.contains('now-playing-widget-page')) {
 const STORAGE_KEY = 'ytm_now_playing_widget_state';
 const CHANNEL_NAME = 'ytm_now_playing_widget';
@@ -36,9 +40,11 @@ const WIDGET_WS_HOST = normalizeWebsocketHost(widgetParams.get('server') || widg
 const WIDGET_WS_PORT = widgetParams.get('port') || widgetParams.get('wsPort') || '8080';
 const WIDGET_WS_PASS = widgetParams.get('pass') || widgetParams.get('password') || widgetParams.get('wsPass') || '';
 const WIDGET_LANG = widgetParams.get('lang') || widgetParams.get('language') || '';
+const WIDGET_AUDIO_ENABLED = isTruthyParam(widgetParams.get('audio') || widgetParams.get('sound') || widgetParams.get('playAudio'));
 const WIDGET_STALE_MS = 3500;
 const WIDGET_CONNECTION_MESSAGE_DELAY_MS = 15000;
 const WIDGET_AUTO_HIDE_MS = 30000;
+const WIDGET_AUDIO_SYNC_THRESHOLD = 1.6;
 let lastPayload = '';
 let activeWidgetSongKey = '';
 let lastWidgetStateAt = 0;
@@ -49,6 +55,12 @@ let widgetHiddenReason = '';
 let widgetStatusKey = '';
 let widgetWs = null;
 let widgetWsReconnectTimeout = null;
+let widgetAudioPlayer = null;
+let widgetAudioReady = false;
+let widgetAudioSongId = '';
+let widgetAudioLastState = null;
+let widgetAudioLastSeekAt = 0;
+let widgetAudioApiLoading = false;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -237,6 +249,115 @@ function widgetT(key) {
     return fallback[key] || key;
 }
 
+function ensureWidgetAudioContainer() {
+    let container = document.getElementById('widget-audio-player');
+    if (container) return container;
+    container = document.createElement('div');
+    container.id = 'widget-audio-player';
+    container.className = 'widget-audio-player';
+    document.body.appendChild(container);
+    return container;
+}
+
+function initWidgetAudioPlayer() {
+    if (!WIDGET_AUDIO_ENABLED || widgetAudioPlayer || typeof YT === 'undefined' || !YT.Player) return;
+    ensureWidgetAudioContainer();
+    widgetAudioPlayer = new YT.Player('widget-audio-player', {
+        height: '1',
+        width: '1',
+        playerVars: {
+            enablejsapi: 1,
+            controls: 0,
+            disablekb: 1,
+            playsinline: 1,
+            origin: window.location.origin
+        },
+        events: {
+            onReady: () => {
+                widgetAudioReady = true;
+                if (widgetAudioLastState) syncWidgetAudio(widgetAudioLastState, true);
+            }
+        }
+    });
+}
+
+function loadWidgetAudioApi() {
+    if (!WIDGET_AUDIO_ENABLED || widgetAudioApiLoading) return;
+    widgetAudioApiLoading = true;
+    ensureWidgetAudioContainer();
+
+    if (window.YT && window.YT.Player) {
+        initWidgetAudioPlayer();
+        return;
+    }
+
+    const previousReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+        if (typeof previousReady === 'function') {
+            try { previousReady(); } catch (error) {}
+        }
+        initWidgetAudioPlayer();
+    };
+
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(script);
+    }
+}
+
+function stopWidgetAudio() {
+    widgetAudioSongId = '';
+    if (!widgetAudioPlayer || !widgetAudioReady) return;
+    try { widgetAudioPlayer.stopVideo(); } catch (error) {}
+}
+
+function syncWidgetAudio(state, force = false) {
+    if (!WIDGET_AUDIO_ENABLED) return;
+    widgetAudioLastState = state;
+
+    if (!state || !state.hasSong || state.isStopped) {
+        stopWidgetAudio();
+        return;
+    }
+
+    loadWidgetAudioApi();
+    if (!widgetAudioPlayer || !widgetAudioReady || !state.id) return;
+
+    const targetTime = Math.max(0, Number(state.currentTime) || 0);
+    const shouldPlay = !!state.isPlaying;
+
+    try {
+        if (widgetAudioSongId !== state.id) {
+            widgetAudioSongId = state.id;
+            if (shouldPlay) {
+                widgetAudioPlayer.loadVideoById({ videoId: state.id, startSeconds: targetTime });
+            } else {
+                widgetAudioPlayer.cueVideoById({ videoId: state.id, startSeconds: targetTime });
+                setTimeout(() => {
+                    try { widgetAudioPlayer.pauseVideo(); } catch (error) {}
+                }, 0);
+            }
+            return;
+        }
+
+        const now = Date.now();
+        const currentTime = widgetAudioPlayer.getCurrentTime ? widgetAudioPlayer.getCurrentTime() : targetTime;
+        const drift = Math.abs(currentTime - targetTime);
+        if ((force || drift > WIDGET_AUDIO_SYNC_THRESHOLD) && now - widgetAudioLastSeekAt > 900) {
+            widgetAudioPlayer.seekTo(targetTime, true);
+            widgetAudioLastSeekAt = now;
+        }
+
+        const audioState = widgetAudioPlayer.getPlayerState ? widgetAudioPlayer.getPlayerState() : 0;
+        if (shouldPlay) {
+            if (audioState !== 1) widgetAudioPlayer.playVideo();
+        } else if (audioState === 1 || audioState === 3) {
+            widgetAudioPlayer.pauseVideo();
+        }
+    } catch (error) {}
+}
+
 function clearWidgetAutoHide() {
     clearTimeout(widgetAutoHideTimeout);
     widgetAutoHideTimeout = null;
@@ -383,6 +504,8 @@ function observeWidgetCard() {
 }
 
 function renderState(state) {
+    syncWidgetAudio(state);
+
     if (!state || !state.hasSong || state.isStopped) {
         if (state && state.isStopped && lastWidgetPlayableState && document.getElementById('widget-now-playing-card')) {
             if (shouldKeepWidgetSilent('stopped')) return;
@@ -573,6 +696,7 @@ window.addEventListener('storage', event => {
 
 function monitorWidgetConnection() {
     if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_CONNECTION_MESSAGE_DELAY_MS) {
+        stopWidgetAudio();
         renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
@@ -586,13 +710,30 @@ setInterval(monitorWidgetConnection, 1000);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.1a";
+        const CURRENT_VERSION = "v1.2.2T";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
         document.getElementById('app-version-display').innerText = CURRENT_VERSION;
+
+        function isTestVersion(version) {
+            return /t$/i.test(String(version || '').trim());
+        }
+
+        function renderTestVersionBadge() {
+            const updateBtn = document.getElementById('update-btn');
+            if (!updateBtn) return;
+            updateBtn.style.display = 'block';
+            updateBtn.removeAttribute('data-version');
+            updateBtn.setAttribute('data-test-version', 'true');
+            updateBtn.innerText = t('ui_test_version');
+            updateBtn.onclick = null;
+        }
         
         async function checkGithubUpdates() {
+            const localIsTestVersion = isTestVersion(CURRENT_VERSION);
+            if (localIsTestVersion) renderTestVersionBadge();
+
             try {
                 // Use 'no-store' to always fetch fresh data and bypass the browser cache.
                 let res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases`, {
@@ -613,9 +754,12 @@ setInterval(monitorWidgetConnection, 1000);
                     console.log(`[Update Check] Local: ${cleanLocalVer} | GitHub: ${cleanGithubVer}`);
 
                     // 1. Update button logic
-                    if (cleanLocalVer !== cleanGithubVer) {
+                    if (localIsTestVersion) {
+                        renderTestVersionBadge();
+                    } else if (cleanLocalVer !== cleanGithubVer) {
                         const updateBtn = document.getElementById('update-btn');
                         updateBtn.style.display = 'block';
+                        updateBtn.removeAttribute('data-test-version');
                         updateBtn.setAttribute('data-version', latest.tag_name); 
                         updateBtn.innerText = t('ui_update_btn', {version: latest.tag_name});
                         updateBtn.onclick = () => window.open(latest.html_url, '_blank');
@@ -791,7 +935,9 @@ setInterval(monitorWidgetConnection, 1000);
 
             // UPDATE BUTTON DYNAMIC TRANSLATION:
             const updateBtn = document.getElementById('update-btn');
-            if (updateBtn && updateBtn.getAttribute('data-version')) {
+            if (updateBtn && updateBtn.getAttribute('data-test-version')) {
+                updateBtn.innerText = t('ui_test_version');
+            } else if (updateBtn && updateBtn.getAttribute('data-version')) {
                 updateBtn.innerText = t('ui_update_btn', {version: updateBtn.getAttribute('data-version')});
             }
 
@@ -849,8 +995,12 @@ setInterval(monitorWidgetConnection, 1000);
         const NOW_PLAYING_WIDGET_CHANNEL = 'ytm_now_playing_widget';
         const NOW_PLAYING_STREAMERBOT_ACTION = 'NowPlayingWidgetState';
         const NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL = 500;
+        const WIDGET_LAST_COPIED_URL_KEY = 'ytm_widget_url_last_copied';
         let nowPlayingWidgetChannel = null;
         let lastNowPlayingStreamerBotPush = 0;
+        let WIDGET_AUDIO_ENABLED_CONFIG = localStorage.getItem('ytm_widget_audio_enabled') === 'true';
+        let widgetUrlBaseline = '';
+        let widgetUrlWarningEnabled = false;
         try {
             if ('BroadcastChannel' in window) nowPlayingWidgetChannel = new BroadcastChannel(NOW_PLAYING_WIDGET_CHANNEL);
         } catch (error) {
@@ -884,7 +1034,7 @@ setInterval(monitorWidgetConnection, 1000);
                 closeTutorial, copySbCode, copyWidgetUrl
             };
 
-            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings };
+            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings, handleWidgetAudioToggle };
             const inputHandlers = { renderBaseList, updateTutLink, saveSongRequestSettings, updateWidgetUrlDisplay };
 
             document.querySelectorAll('[data-action]').forEach(el => {
@@ -919,6 +1069,7 @@ setInterval(monitorWidgetConnection, 1000);
         const queuePersistInput = document.getElementById('queue-persist-cb');
         const srMaxDurationInput = document.getElementById('sr-max-duration-input');
         const srMusicCategoryInput = document.getElementById('sr-music-category-cb');
+        const widgetAudioInput = document.getElementById('widget-audio-cb');
 
         if (wsHostInput) wsHostInput.value = WS_HOST;
         if (wsPortInput) wsPortInput.value = WS_PORT;
@@ -927,6 +1078,7 @@ setInterval(monitorWidgetConnection, 1000);
         if (queuePersistInput) queuePersistInput.checked = SHOULD_PERSIST_QUEUE;
         if (srMaxDurationInput) srMaxDurationInput.value = SR_MAX_DURATION_MINUTES;
         if (srMusicCategoryInput) srMusicCategoryInput.checked = SR_REQUIRE_MUSIC_CATEGORY;
+        if (widgetAudioInput) widgetAudioInput.checked = WIDGET_AUDIO_ENABLED_CONFIG;
 
         applyHolidayVariant();
         window.addEventListener('focus', refreshHolidayVariant);
@@ -942,6 +1094,8 @@ setInterval(monitorWidgetConnection, 1000);
         // ===================== SETTINGS MODAL =====================
         function openSettings() { 
             document.getElementById('api-key-input').value = API_KEY;
+            widgetUrlBaseline = getWidgetUrl();
+            widgetUrlWarningEnabled = true;
             updateWidgetUrlDisplay();
             renderSettingsMessages();
             document.getElementById('settings-modal').style.display = 'flex'; 
@@ -1032,6 +1186,13 @@ setInterval(monitorWidgetConnection, 1000);
             localStorage.setItem('ytm_sr_max_duration_minutes', SR_MAX_DURATION_MINUTES.toString());
             localStorage.setItem('ytm_sr_require_music_category', SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false');
             syncSongRequestSettingsToStreamerBot();
+        }
+
+        function handleWidgetAudioToggle() {
+            const input = document.getElementById('widget-audio-cb');
+            WIDGET_AUDIO_ENABLED_CONFIG = !!(input && input.checked);
+            localStorage.setItem('ytm_widget_audio_enabled', WIDGET_AUDIO_ENABLED_CONFIG ? 'true' : 'false');
+            updateWidgetUrlDisplay();
         }
 
         function syncSongRequestSettingsToStreamerBot() {
@@ -1136,20 +1297,34 @@ setInterval(monitorWidgetConnection, 1000);
             const hostInput = document.getElementById('ws-host-input');
             const portInput = document.getElementById('ws-port-input');
             const passInput = document.getElementById('ws-pass-input');
+            const audioInput = document.getElementById('widget-audio-cb');
             const host = normalizeWebsocketHost((hostInput && hostInput.value.trim()) ? hostInput.value.trim() : WS_HOST);
             const port = (portInput && portInput.value.trim()) ? portInput.value.trim() : WS_PORT;
             const pass = passInput ? passInput.value.trim() : WS_PASS;
+            const audioEnabled = audioInput ? audioInput.checked : WIDGET_AUDIO_ENABLED_CONFIG;
 
             if (host && host !== DEFAULT_STREAMERBOT_WS_HOST) url.searchParams.set('server', host);
             if (port && port !== '8080') url.searchParams.set('port', port);
             if (pass) url.searchParams.set('pass', pass);
+            if (audioEnabled) url.searchParams.set('audio', '1');
             if (currentLang) url.searchParams.set('lang', currentLang);
             return url.toString();
         }
 
+        function updateWidgetUrlWarning(currentUrl) {
+            const warning = document.getElementById('widget-url-warning');
+            if (!warning) return;
+            const lastCopiedUrl = localStorage.getItem(WIDGET_LAST_COPIED_URL_KEY) || '';
+            const changedAfterCopy = !!lastCopiedUrl && lastCopiedUrl !== currentUrl;
+            const changedAfterOpen = widgetUrlWarningEnabled && !!widgetUrlBaseline && widgetUrlBaseline !== currentUrl;
+            warning.classList.toggle('is-hidden', !changedAfterCopy && !changedAfterOpen);
+        }
+
         function updateWidgetUrlDisplay() {
             const output = document.getElementById('widget-url-output');
-            if (output) output.value = getWidgetUrl();
+            const url = getWidgetUrl();
+            if (output) output.value = url;
+            updateWidgetUrlWarning(url);
         }
 
         function copyWidgetUrl() {
@@ -1161,6 +1336,10 @@ setInterval(monitorWidgetConnection, 1000);
             output.setSelectionRange(0, 99999);
 
             const done = () => {
+                localStorage.setItem(WIDGET_LAST_COPIED_URL_KEY, output.value);
+                widgetUrlBaseline = output.value;
+                widgetUrlWarningEnabled = true;
+                updateWidgetUrlWarning(output.value);
                 const btn = document.getElementById('btn-copy-widget-url');
                 if (!btn) return;
                 const oldText = btn.innerText;

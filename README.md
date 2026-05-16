@@ -1,6 +1,4 @@
-# THIS IS A TEST VERSION! MAY CONTAIN PARTIALLY OR COMPLETELY NON-WORKING FEATURES!
-
-# 🎵 YTM Song Request for Streamer.bot (v1.2.1a)
+# 🎵 YTM Song Request for Streamer.bot (v1.2.2)
 
 A dynamic, self-hosted YouTube Music player and Song Request system built specifically for Streamer.bot. This system runs locally in your browser, uses your own Google API key (no third-party server dependencies), and communicates directly with your chat via Streamer.bot's built-in WebSockets.
 
@@ -13,6 +11,15 @@ A dynamic, self-hosted YouTube Music player and Song Request system built specif
 * **Chat Commands:** Support for standard SR commands (`!sr [link/title]`, `!skip`, `!wrongsong`, `!volume`).
 * **Auto-Skip:** Automatically skips unavailable, blocked, or deleted videos.
 * **Compact widget for OBS:** A standalone floating widget that displays the title and progress of the currently playing song. Perfect for adding to OBS! It uses Web Socket to refresh the status live.
+
+supported languages:
+
+English
+Polski
+Українська
+Deutsch
+Français
+Türkçe
 
 ## 📥 Installation & Setup
 
