@@ -1,12 +1,43 @@
+const DEFAULT_STREAMERBOT_WS_HOST = '127.0.0.1';
+
+function normalizeWebsocketHost(value) {
+    const fallback = DEFAULT_STREAMERBOT_WS_HOST;
+    const rawValue = String(value || '').trim();
+    if (!rawValue) return fallback;
+
+    try {
+        const url = new URL(rawValue.includes('://') ? rawValue : 'ws://' + rawValue);
+        return url.hostname || fallback;
+    } catch (error) {
+        return rawValue
+            .replace(/^wss?:\/\//i, '')
+            .replace(/^https?:\/\//i, '')
+            .replace(/\/.*$/, '')
+            .replace(/:\d+$/, '')
+            .trim() || fallback;
+    }
+}
+
+function formatWebsocketHostForUrl(host) {
+    if (host.includes(':') && !host.startsWith('[')) return '[' + host + ']';
+    return host;
+}
+
+function buildStreamerBotWebsocketUrl(host, port) {
+    return 'ws://' + formatWebsocketHostForUrl(normalizeWebsocketHost(host)) + ':' + String(port || '8080').trim() + '/';
+}
+
 if (document.body.classList.contains('now-playing-widget-page')) {
 const STORAGE_KEY = 'ytm_now_playing_widget_state';
 const CHANNEL_NAME = 'ytm_now_playing_widget';
 const root = document.getElementById('widget-root');
 const widgetParams = new URLSearchParams(window.location.search || '');
+const WIDGET_WS_HOST = normalizeWebsocketHost(widgetParams.get('server') || widgetParams.get('host') || widgetParams.get('wsHost') || DEFAULT_STREAMERBOT_WS_HOST);
 const WIDGET_WS_PORT = widgetParams.get('port') || widgetParams.get('wsPort') || '8080';
 const WIDGET_WS_PASS = widgetParams.get('pass') || widgetParams.get('password') || widgetParams.get('wsPass') || '';
 const WIDGET_LANG = widgetParams.get('lang') || widgetParams.get('language') || '';
 const WIDGET_STALE_MS = 3500;
+const WIDGET_CONNECTION_MESSAGE_DELAY_MS = 15000;
 const WIDGET_AUTO_HIDE_MS = 30000;
 let lastPayload = '';
 let activeWidgetSongKey = '';
@@ -429,32 +460,40 @@ function renderState(state) {
     }
 }
 
-function consumePayload(payload) {
-    if (!payload || payload === lastPayload) return;
-    lastPayload = payload;
+function consumePayload(payload, source = 'unknown') {
+    if (!payload) return;
     try {
         const state = JSON.parse(payload);
         if (!state || state.type !== 'NOW_PLAYING_STATE') return;
-        if (state.updatedAt && Date.now() - state.updatedAt > WIDGET_STALE_MS) {
+
+        const now = Date.now();
+        if (state.updatedAt && now - state.updatedAt > WIDGET_STALE_MS) {
+            const hasFreshState = lastWidgetStateAt && now - lastWidgetStateAt <= WIDGET_STALE_MS;
+            if (hasFreshState || source === 'storage' || source === 'storage-event') return;
+            if (!lastWidgetStateAt || now - lastWidgetStateAt < WIDGET_CONNECTION_MESSAGE_DELAY_MS) return;
+
             renderWidgetStatus('ui_widget_waiting_player', 'connection');
             return;
         }
 
-        lastWidgetStateAt = Date.now();
+        if (payload === lastPayload) return;
+
+        lastPayload = payload;
+        lastWidgetStateAt = now;
         renderState(state);
     } catch (error) {
         renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
 
-function handleWidgetState(state) {
+function handleWidgetState(state, source = 'message') {
     if (!state || state.type !== 'NOW_PLAYING_STATE') return;
-    consumePayload(JSON.stringify(state));
+    consumePayload(JSON.stringify(state), source);
 }
 
 function readStorageState() {
     try {
-        consumePayload(localStorage.getItem(STORAGE_KEY));
+        consumePayload(localStorage.getItem(STORAGE_KEY), 'storage');
     } catch (error) {}
 }
 
@@ -497,7 +536,7 @@ async function handleWidgetStreamerBotHello(raw) {
 function connectWidgetWebsocket() {
     if (typeof WebSocket === 'undefined') return;
     clearTimeout(widgetWsReconnectTimeout);
-    widgetWs = new WebSocket('ws://localhost:' + WIDGET_WS_PORT + '/');
+    widgetWs = new WebSocket(buildStreamerBotWebsocketUrl(WIDGET_WS_HOST, WIDGET_WS_PORT));
 
     widgetWs.onmessage = async event => {
         try {
@@ -512,7 +551,7 @@ function connectWidgetWebsocket() {
                 return;
             }
 
-            handleWidgetState(unwrapStreamerBotPayload(raw));
+            handleWidgetState(unwrapStreamerBotPayload(raw), 'streamerbot');
         } catch (error) {}
     };
 
@@ -524,16 +563,16 @@ function connectWidgetWebsocket() {
 try {
     if ('BroadcastChannel' in window) {
         const channel = new BroadcastChannel(CHANNEL_NAME);
-        channel.onmessage = event => handleWidgetState(event.data);
+        channel.onmessage = event => handleWidgetState(event.data, 'broadcast');
     }
 } catch (error) {}
 
 window.addEventListener('storage', event => {
-    if (event.key === STORAGE_KEY) consumePayload(event.newValue);
+    if (event.key === STORAGE_KEY) consumePayload(event.newValue, 'storage-event');
 });
 
 function monitorWidgetConnection() {
-    if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_STALE_MS) {
+    if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_CONNECTION_MESSAGE_DELAY_MS) {
         renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
@@ -547,7 +586,7 @@ setInterval(monitorWidgetConnection, 1000);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.1";
+        const CURRENT_VERSION = "v1.2.1a";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
@@ -771,12 +810,18 @@ setInterval(monitorWidgetConnection, 1000);
             }
             
             updateTutLink(); 
+            renderWebsocketStatus();
         }
 
         // =========================================================================
         let API_KEY = localStorage.getItem('ytm_api_key') || ''; 
+        let WS_HOST = normalizeWebsocketHost(localStorage.getItem('ytm_ws_host') || DEFAULT_STREAMERBOT_WS_HOST);
         let WS_PORT = localStorage.getItem('ytm_ws_port') || '8080';
         let WS_PASS = localStorage.getItem('ytm_ws_pass') || '';
+        let wsConnectionAttempt = 0;
+        let wsStreamerBotReady = false;
+        let wsStatusKey = 'ui_bot_connecting';
+        let wsStatusColor = '#ffaa00';
         const QUEUE_STORAGE_KEY = 'ytm_persisted_queue';
         let SHOULD_PERSIST_QUEUE = localStorage.getItem('ytm_persist_queue') === 'true';
         let queuePersistenceReady = false;
@@ -867,6 +912,7 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         bindStaticUiEvents();
+        const wsHostInput = document.getElementById('ws-host-input');
         const wsPortInput = document.getElementById('ws-port-input');
         const wsPassInput = document.getElementById('ws-pass-input');
         const tutWsPortInput = document.getElementById('tut-ws-port');
@@ -874,6 +920,7 @@ setInterval(monitorWidgetConnection, 1000);
         const srMaxDurationInput = document.getElementById('sr-max-duration-input');
         const srMusicCategoryInput = document.getElementById('sr-music-category-cb');
 
+        if (wsHostInput) wsHostInput.value = WS_HOST;
         if (wsPortInput) wsPortInput.value = WS_PORT;
         if (wsPassInput) wsPassInput.value = WS_PASS;
         if (tutWsPortInput) tutWsPortInput.value = WS_PORT;
@@ -988,7 +1035,7 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function syncSongRequestSettingsToStreamerBot() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!canUseStreamerBotWebsocket()) return;
             ws.send(JSON.stringify({
                 request: 'DoAction',
                 action: { name: 'SongRequestSettings' },
@@ -1046,16 +1093,19 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function saveWsConfig() {
+            const newHost = normalizeWebsocketHost(document.getElementById('ws-host-input').value.trim());
             const newPort = document.getElementById('ws-port-input').value.trim();
             const newPass = document.getElementById('ws-pass-input').value.trim();
             
             if(newPort && !isNaN(newPort)) {
+                WS_HOST = newHost;
                 WS_PORT = newPort;
                 WS_PASS = newPass;
+                localStorage.setItem('ytm_ws_host', WS_HOST);
                 localStorage.setItem('ytm_ws_port', WS_PORT);
                 localStorage.setItem('ytm_ws_pass', WS_PASS);
                 document.getElementById('tut-ws-port').value = WS_PORT; 
-                log(`🔌 WS Port: ${WS_PORT} | Pass: ${WS_PASS ? 'YES' : 'NO'}`, "warn");
+                log(`🔌 WS Server: ${WS_HOST}:${WS_PORT} | Pass: ${WS_PASS ? 'YES' : 'NO'}`, "warn");
                 
                 updateWidgetUrlDisplay();
                 if(ws) {
@@ -1083,11 +1133,14 @@ setInterval(monitorWidgetConnection, 1000);
 
         function getWidgetUrl() {
             const url = getWidgetUrlBase();
+            const hostInput = document.getElementById('ws-host-input');
             const portInput = document.getElementById('ws-port-input');
             const passInput = document.getElementById('ws-pass-input');
+            const host = normalizeWebsocketHost((hostInput && hostInput.value.trim()) ? hostInput.value.trim() : WS_HOST);
             const port = (portInput && portInput.value.trim()) ? portInput.value.trim() : WS_PORT;
             const pass = passInput ? passInput.value.trim() : WS_PASS;
 
+            if (host && host !== DEFAULT_STREAMERBOT_WS_HOST) url.searchParams.set('server', host);
             if (port && port !== '8080') url.searchParams.set('port', port);
             if (pass) url.searchParams.set('pass', pass);
             if (currentLang) url.searchParams.set('lang', currentLang);
@@ -1660,7 +1713,7 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function publishNowPlayingWidgetStateToStreamerBot(state, force = false) {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!canUseStreamerBotWebsocket()) return;
             const now = Date.now();
             if (!force && now - lastNowPlayingStreamerBotPush < NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL) return;
             lastNowPlayingStreamerBotPush = now;
@@ -2157,7 +2210,7 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function sendChatMessage(msg) {
-            if(ws && ws.readyState === WebSocket.OPEN) {
+            if(canUseStreamerBotWebsocket()) {
                 ws.send(JSON.stringify({"request": "DoAction", "action": { "name": "ChatMessage" }, "args": { "message": msg }, "id": "MsgOut" }));
             }
         }
@@ -2334,18 +2387,54 @@ setInterval(monitorWidgetConnection, 1000);
             }
         }
 
-        function setWebsocketConnected() {
-            document.getElementById('status').innerText = t('ui_bot_connected');
-            document.getElementById('status').style.color = "#00ff88";
+        function isActiveWebsocket(socket, attempt) {
+            return socket && socket === ws && attempt === wsConnectionAttempt;
+        }
+
+        function canUseStreamerBotWebsocket() {
+            return !!(ws && ws.readyState === WebSocket.OPEN && wsStreamerBotReady);
+        }
+
+        function setWebsocketConnecting() {
+            wsStreamerBotReady = false;
+            wsStatusKey = 'ui_bot_connecting';
+            wsStatusColor = '#ffaa00';
+            renderWebsocketStatus();
+        }
+
+        function setWebsocketConnected(socket, attempt) {
+            if (!isActiveWebsocket(socket, attempt)) return;
+            wsStreamerBotReady = true;
+            wsStatusKey = 'ui_bot_connected';
+            wsStatusColor = '#00ff88';
+            renderWebsocketStatus();
+        }
+
+        function setWebsocketDisconnected() {
+            wsStreamerBotReady = false;
+            wsStatusKey = 'ui_bot_disconnected';
+            wsStatusColor = 'var(--red)';
+            renderWebsocketStatus();
         }
 
         function setWebsocketAuthFailed(message = "WebSocket Authentication Failed!") {
-            document.getElementById('status').innerText = t('ui_bot_auth_fail');
-            document.getElementById('status').style.color = "var(--red)";
+            wsStreamerBotReady = false;
+            wsStatusKey = 'ui_bot_auth_fail';
+            wsStatusColor = 'var(--red)';
+            renderWebsocketStatus();
             log(`🔴 ${message}`, "error");
         }
 
-        async function handleStreamerBotHello(raw) {
+        function renderWebsocketStatus() {
+            const statusEl = document.getElementById('status');
+            if (!statusEl) return;
+            statusEl.innerText = t(wsStatusKey);
+            statusEl.style.color = wsStatusColor;
+        }
+
+        async function handleStreamerBotHello(raw, socket, attempt) {
+            if (!isActiveWebsocket(socket, attempt)) return;
+
             if (raw.authentication) {
                 if (!WS_PASS) {
                     setWebsocketAuthFailed("WebSocket password is required by Streamer.bot.");
@@ -2358,7 +2447,9 @@ setInterval(monitorWidgetConnection, 1000);
                         raw.authentication.salt,
                         raw.authentication.challenge
                     );
-                    ws.send(JSON.stringify({ "request": "Authenticate", "authentication": authentication, "id": "auth" }));
+                    if (isActiveWebsocket(socket, attempt) && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ "request": "Authenticate", "authentication": authentication, "id": "auth" }));
+                    }
                 } catch (error) {
                     setWebsocketAuthFailed("Unable to generate WebSocket authentication.");
                     console.error(error);
@@ -2366,30 +2457,38 @@ setInterval(monitorWidgetConnection, 1000);
                 return;
             }
 
-            setWebsocketConnected();
+            setWebsocketConnected(socket, attempt);
             subscribeToStreamerBotEvents();
         }
 
         function connectWebsocket() {
-            ws = new WebSocket(`ws://localhost:${WS_PORT}/`);
-            ws.onopen = () => { 
-                log(`🔌 WebSocket opened on port ${WS_PORT}`, "normal");
+            clearTimeout(wsReconnectTimeout);
+            const attempt = ++wsConnectionAttempt;
+            const socket = new WebSocket(buildStreamerBotWebsocketUrl(WS_HOST, WS_PORT));
+            ws = socket;
+            setWebsocketConnecting();
+
+            socket.onopen = () => {
+                if (!isActiveWebsocket(socket, attempt)) return;
+                log(`🔌 WebSocket opened on ${WS_HOST}:${WS_PORT}`, "normal");
             };
-            ws.onmessage = async (e) => {
+            socket.onmessage = async (e) => {
+                if (!isActiveWebsocket(socket, attempt)) return;
                 const rawData = e.data.toString();
                 try {
                     const raw = JSON.parse(rawData);
 
                     if (raw.request === "Hello") {
-                        await handleStreamerBotHello(raw);
+                        await handleStreamerBotHello(raw, socket, attempt);
                         return;
                     }
 
                     if (raw.id === "Sub") return;
                     
                     if (raw.id === "auth") {
+                        if (!isActiveWebsocket(socket, attempt)) return;
                         if (raw.status === "ok") {
-                            setWebsocketConnected();
+                            setWebsocketConnected(socket, attempt);
                             subscribeToStreamerBotEvents();
                         } else {
                             setWebsocketAuthFailed();
@@ -2443,10 +2542,14 @@ setInterval(monitorWidgetConnection, 1000);
                     }
                 } catch(err) {}
             };
-            ws.onclose = () => { 
-                document.getElementById('status').innerText = t('ui_bot_disconnected');
-                document.getElementById('status').style.color = "var(--red)";
-                wsReconnectTimeout = setTimeout(connectWebsocket, 5000); 
+            socket.onerror = () => {
+                if (!isActiveWebsocket(socket, attempt)) return;
+                wsStreamerBotReady = false;
+            };
+            socket.onclose = () => {
+                if (!isActiveWebsocket(socket, attempt)) return;
+                setWebsocketDisconnected();
+                wsReconnectTimeout = setTimeout(connectWebsocket, 5000);
             };
         }
 
