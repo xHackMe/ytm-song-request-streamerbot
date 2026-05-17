@@ -26,7 +26,7 @@ Türkçe
 ## 📥 Installation & Setup
 
 ### Step 1: Download the files
-Download the latest `index.html`, `now-playing-widget.html`, `style.css`, `favicon.ico`, `app.js` and `translations.js` or `Source code
+Download the latest `index.html`, `now-playing-widget.html`, `style.css`, `app.js` and `translations.js` or `Source code
 (zip)` from the [Releases](https://github.com/xHackMe/ytm-song-request-streamerbot/releases) tab and save them in a dedicated folder on your PC (e.g., `C:\StreamerBot\YTM Song Request\`).
 
 ### Step 2: Streamer.bot HTTP Server

@@ -7,6 +7,7 @@ NEW Added drag and drop reordering for base playlists in the playlist manager, s
 NEW Added visible drag handles to both base playlists and right-side queued tracks.
 CHANGE Made the update, changelog, and help buttons sit horizontally near the footer and slide out individually on hover.
 CHANGE Made NEXT and natural song endings refill an empty queue using shuffle mode instead of ordered start.
+CHANGE Embedded the favicon directly in index.html as a base64 data URL so favicon.ico is no longer required by the page.
 
 Release v1.2.2
 📜 Changelog 16.05.2026
