@@ -1,3 +1,13 @@
+Release v1.2.2T
+📜 Changelog 17.05.2026
+
+NEW Added queue clearing with a confirmation prompt while keeping the currently playing song untouched.
+NEW Split the base playlist start action into START for loaded playlist order and SHUFFLE for random order, with short UI descriptions.
+NEW Added drag and drop reordering for base playlists in the playlist manager, saved locally and used by START order.
+NEW Added visible drag handles to both base playlists and right-side queued tracks.
+CHANGE Made the update, changelog, and help buttons sit horizontally near the footer and slide out individually on hover.
+CHANGE Made NEXT and natural song endings refill an empty queue using shuffle mode instead of ordered start.
+
 Release v1.2.2
 📜 Changelog 16.05.2026
 

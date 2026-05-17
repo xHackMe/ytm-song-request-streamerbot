@@ -19,7 +19,16 @@
                 <!-- Playlist manager button with i18n text, icon, and styling -->
                 <button data-action="openPlaylistManager" data-i18n="ui_manage_playlists" class="ex-style-002">📁 Manage Playlists</button>
             </div>
-            <button id="btn-run" class="btn-start" data-action="startSystem" disabled data-i18n="ui_btn_downloading">⏳ DOWNLOADING DATABASE...</button>
+            <div class="base-start-actions">
+                <div class="base-start-option">
+                    <button id="btn-run" class="btn-start" data-action="startSystem" disabled data-i18n="ui_btn_downloading">⏳ DOWNLOADING DATABASE...</button>
+                    <small data-i18n="ui_btn_start_order_desc">Adds tracks in the same order as they were loaded from playlists.</small>
+                </div>
+                <div class="base-start-option">
+                    <button id="btn-shuffle" class="btn-start btn-start-shuffle" data-action="startSystemShuffle" disabled data-i18n="ui_btn_downloading">⏳ DOWNLOADING DATABASE...</button>
+                    <small data-i18n="ui_btn_shuffle_desc">Adds the same tracks in a random order.</small>
+                </div>
+            </div>
             
             <div class="ex-style-003">
                 <input type="text" id="base-search" data-i18n-placeholder="ui_search_base" placeholder="🔍 Search track in base (title or author)..." data-input-action="renderBaseList">
@@ -82,11 +91,14 @@
             
             <div id="now-playing-box">
                 <div data-i18n="ui_now_playing" class="ex-style-012">🎵 Now Playing</div>
-                <label class="queue-persist-switch" data-i18n-title="ui_queue_persist_title" title="Keep the current queue after refreshing the page">
-                    <span data-i18n="ui_queue_persist">Save queue</span>
-                    <input type="checkbox" id="queue-persist-cb" data-change-action="handleQueuePersistenceToggle">
-                    <span class="queue-switch-track" aria-hidden="true"></span>
-                </label>
+                <div class="queue-actions">
+                    <label class="queue-persist-switch" data-i18n-title="ui_queue_persist_title" title="Keep the current queue after refreshing the page">
+                        <span data-i18n="ui_queue_persist">Save queue</span>
+                        <input type="checkbox" id="queue-persist-cb" data-change-action="handleQueuePersistenceToggle">
+                        <span class="queue-switch-track" aria-hidden="true"></span>
+                    </label>
+                    <button id="btn-clear-queue" class="btn-clear-queue" data-action="clearQueueWithConfirm" data-i18n="ui_clear_queue" data-i18n-title="ui_clear_queue_title" title="Clear queued tracks, keeping the current song" disabled>Clear queue</button>
+                </div>
                 <div id="now-playing-content">
                     <div data-i18n="ui_no_song" class="ex-style-013">No song</div>
                 </div>
