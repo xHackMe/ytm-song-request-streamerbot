@@ -27,6 +27,10 @@ function buildStreamerBotWebsocketUrl(host, port) {
     return 'ws://' + formatWebsocketHostForUrl(normalizeWebsocketHost(host)) + ':' + String(port || '8080').trim() + '/';
 }
 
+function isTruthyParam(value) {
+    return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
 if (document.body.classList.contains('now-playing-widget-page')) {
 const STORAGE_KEY = 'ytm_now_playing_widget_state';
 const CHANNEL_NAME = 'ytm_now_playing_widget';
@@ -36,9 +40,11 @@ const WIDGET_WS_HOST = normalizeWebsocketHost(widgetParams.get('server') || widg
 const WIDGET_WS_PORT = widgetParams.get('port') || widgetParams.get('wsPort') || '8080';
 const WIDGET_WS_PASS = widgetParams.get('pass') || widgetParams.get('password') || widgetParams.get('wsPass') || '';
 const WIDGET_LANG = widgetParams.get('lang') || widgetParams.get('language') || '';
+const WIDGET_AUDIO_ENABLED = isTruthyParam(widgetParams.get('audio') || widgetParams.get('sound') || widgetParams.get('playAudio'));
 const WIDGET_STALE_MS = 3500;
 const WIDGET_CONNECTION_MESSAGE_DELAY_MS = 15000;
 const WIDGET_AUTO_HIDE_MS = 30000;
+const WIDGET_AUDIO_SYNC_THRESHOLD = 1.6;
 let lastPayload = '';
 let activeWidgetSongKey = '';
 let lastWidgetStateAt = 0;
@@ -49,6 +55,14 @@ let widgetHiddenReason = '';
 let widgetStatusKey = '';
 let widgetWs = null;
 let widgetWsReconnectTimeout = null;
+let widgetWsFallbackSubscribeTimeout = null;
+let widgetWsSubscribed = false;
+let widgetAudioPlayer = null;
+let widgetAudioReady = false;
+let widgetAudioSongId = '';
+let widgetAudioLastState = null;
+let widgetAudioLastSeekAt = 0;
+let widgetAudioApiLoading = false;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -237,6 +251,115 @@ function widgetT(key) {
     return fallback[key] || key;
 }
 
+function ensureWidgetAudioContainer() {
+    let container = document.getElementById('widget-audio-player');
+    if (container) return container;
+    container = document.createElement('div');
+    container.id = 'widget-audio-player';
+    container.className = 'widget-audio-player';
+    document.body.appendChild(container);
+    return container;
+}
+
+function initWidgetAudioPlayer() {
+    if (!WIDGET_AUDIO_ENABLED || widgetAudioPlayer || typeof YT === 'undefined' || !YT.Player) return;
+    ensureWidgetAudioContainer();
+    widgetAudioPlayer = new YT.Player('widget-audio-player', {
+        height: '1',
+        width: '1',
+        playerVars: {
+            enablejsapi: 1,
+            controls: 0,
+            disablekb: 1,
+            playsinline: 1,
+            origin: window.location.origin
+        },
+        events: {
+            onReady: () => {
+                widgetAudioReady = true;
+                if (widgetAudioLastState) syncWidgetAudio(widgetAudioLastState, true);
+            }
+        }
+    });
+}
+
+function loadWidgetAudioApi() {
+    if (!WIDGET_AUDIO_ENABLED || widgetAudioApiLoading) return;
+    widgetAudioApiLoading = true;
+    ensureWidgetAudioContainer();
+
+    if (window.YT && window.YT.Player) {
+        initWidgetAudioPlayer();
+        return;
+    }
+
+    const previousReady = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+        if (typeof previousReady === 'function') {
+            try { previousReady(); } catch (error) {}
+        }
+        initWidgetAudioPlayer();
+    };
+
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(script);
+    }
+}
+
+function stopWidgetAudio() {
+    widgetAudioSongId = '';
+    if (!widgetAudioPlayer || !widgetAudioReady) return;
+    try { widgetAudioPlayer.stopVideo(); } catch (error) {}
+}
+
+function syncWidgetAudio(state, force = false) {
+    if (!WIDGET_AUDIO_ENABLED) return;
+    widgetAudioLastState = state;
+
+    if (!state || !state.hasSong || state.isStopped) {
+        stopWidgetAudio();
+        return;
+    }
+
+    loadWidgetAudioApi();
+    if (!widgetAudioPlayer || !widgetAudioReady || !state.id) return;
+
+    const targetTime = Math.max(0, Number(state.currentTime) || 0);
+    const shouldPlay = !!state.isPlaying;
+
+    try {
+        if (widgetAudioSongId !== state.id) {
+            widgetAudioSongId = state.id;
+            if (shouldPlay) {
+                widgetAudioPlayer.loadVideoById({ videoId: state.id, startSeconds: targetTime });
+            } else {
+                widgetAudioPlayer.cueVideoById({ videoId: state.id, startSeconds: targetTime });
+                setTimeout(() => {
+                    try { widgetAudioPlayer.pauseVideo(); } catch (error) {}
+                }, 0);
+            }
+            return;
+        }
+
+        const now = Date.now();
+        const currentTime = widgetAudioPlayer.getCurrentTime ? widgetAudioPlayer.getCurrentTime() : targetTime;
+        const drift = Math.abs(currentTime - targetTime);
+        if ((force || drift > WIDGET_AUDIO_SYNC_THRESHOLD) && now - widgetAudioLastSeekAt > 900) {
+            widgetAudioPlayer.seekTo(targetTime, true);
+            widgetAudioLastSeekAt = now;
+        }
+
+        const audioState = widgetAudioPlayer.getPlayerState ? widgetAudioPlayer.getPlayerState() : 0;
+        if (shouldPlay) {
+            if (audioState !== 1) widgetAudioPlayer.playVideo();
+        } else if (audioState === 1 || audioState === 3) {
+            widgetAudioPlayer.pauseVideo();
+        }
+    } catch (error) {}
+}
+
 function clearWidgetAutoHide() {
     clearTimeout(widgetAutoHideTimeout);
     widgetAutoHideTimeout = null;
@@ -383,6 +506,8 @@ function observeWidgetCard() {
 }
 
 function renderState(state) {
+    syncWidgetAudio(state);
+
     if (!state || !state.hasSong || state.isStopped) {
         if (state && state.isStopped && lastWidgetPlayableState && document.getElementById('widget-now-playing-card')) {
             if (shouldKeepWidgetSilent('stopped')) return;
@@ -514,40 +639,68 @@ async function createStreamerBotAuthentication(password, salt, challenge) {
     return toBase64(authBuffer);
 }
 
-function subscribeWidgetToStreamerBotEvents() {
-    if (widgetWs && widgetWs.readyState === WebSocket.OPEN) {
-        widgetWs.send(JSON.stringify({ request: 'Subscribe', events: { General: ['Custom'] }, id: 'WidgetSub' }));
+function clearWidgetFallbackSubscribe() {
+    clearTimeout(widgetWsFallbackSubscribeTimeout);
+    widgetWsFallbackSubscribeTimeout = null;
+}
+
+function subscribeWidgetToStreamerBotEvents(socket = widgetWs) {
+    if (socket && socket === widgetWs && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ request: 'Subscribe', events: { General: ['Custom'] }, id: 'WidgetSub' }));
+        widgetWsSubscribed = true;
+        clearWidgetFallbackSubscribe();
     }
 }
 
-async function handleWidgetStreamerBotHello(raw) {
+async function handleWidgetStreamerBotHello(raw, socket = widgetWs) {
+    if (socket !== widgetWs) return;
+    clearWidgetFallbackSubscribe();
+
     if (raw.authentication) {
         if (!WIDGET_WS_PASS) return;
         try {
             const authentication = await createStreamerBotAuthentication(WIDGET_WS_PASS, raw.authentication.salt, raw.authentication.challenge);
-            widgetWs.send(JSON.stringify({ request: 'Authenticate', authentication, id: 'WidgetAuth' }));
+            if (socket === widgetWs && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ request: 'Authenticate', authentication, id: 'WidgetAuth' }));
+            }
         } catch (error) {}
         return;
     }
 
-    subscribeWidgetToStreamerBotEvents();
+    subscribeWidgetToStreamerBotEvents(socket);
 }
 
 function connectWidgetWebsocket() {
     if (typeof WebSocket === 'undefined') return;
     clearTimeout(widgetWsReconnectTimeout);
-    widgetWs = new WebSocket(buildStreamerBotWebsocketUrl(WIDGET_WS_HOST, WIDGET_WS_PORT));
+    clearWidgetFallbackSubscribe();
+    widgetWsSubscribed = false;
+    const socket = new WebSocket(buildStreamerBotWebsocketUrl(WIDGET_WS_HOST, WIDGET_WS_PORT));
+    widgetWs = socket;
 
-    widgetWs.onmessage = async event => {
+    socket.onopen = () => {
+        if (socket !== widgetWs || WIDGET_WS_PASS) return;
+        widgetWsFallbackSubscribeTimeout = setTimeout(() => {
+            if (socket === widgetWs && !widgetWsSubscribed) {
+                subscribeWidgetToStreamerBotEvents(socket);
+            }
+        }, 750);
+    };
+
+    socket.onmessage = async event => {
+        if (socket !== widgetWs) return;
         try {
             const raw = JSON.parse(event.data.toString());
             if (raw.request === 'Hello') {
-                await handleWidgetStreamerBotHello(raw);
+                await handleWidgetStreamerBotHello(raw, socket);
                 return;
             }
-            if (raw.id === 'WidgetSub') return;
+            if (raw.id === 'WidgetSub') {
+                if (raw.status === 'ok') widgetWsSubscribed = true;
+                return;
+            }
             if (raw.id === 'WidgetAuth') {
-                if (raw.status === 'ok') subscribeWidgetToStreamerBotEvents();
+                if (raw.status === 'ok') subscribeWidgetToStreamerBotEvents(socket);
                 return;
             }
 
@@ -555,7 +708,15 @@ function connectWidgetWebsocket() {
         } catch (error) {}
     };
 
-    widgetWs.onclose = () => {
+    socket.onerror = () => {
+        if (socket !== widgetWs) return;
+        try { socket.close(); } catch (error) {}
+    };
+
+    socket.onclose = () => {
+        if (socket !== widgetWs) return;
+        clearWidgetFallbackSubscribe();
+        widgetWsSubscribed = false;
         widgetWsReconnectTimeout = setTimeout(connectWidgetWebsocket, 5000);
     };
 }
@@ -573,6 +734,7 @@ window.addEventListener('storage', event => {
 
 function monitorWidgetConnection() {
     if (!lastWidgetStateAt || Date.now() - lastWidgetStateAt > WIDGET_CONNECTION_MESSAGE_DELAY_MS) {
+        stopWidgetAudio();
         renderWidgetStatus('ui_widget_waiting_player', 'connection');
     }
 }
@@ -586,13 +748,30 @@ setInterval(monitorWidgetConnection, 1000);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.1a";
+        const CURRENT_VERSION = "v1.2.2";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
         document.getElementById('app-version-display').innerText = CURRENT_VERSION;
+
+        function isTestVersion(version) {
+            return /t$/i.test(String(version || '').trim());
+        }
+
+        function renderTestVersionBadge() {
+            const updateBtn = document.getElementById('update-btn');
+            if (!updateBtn) return;
+            updateBtn.style.display = 'block';
+            updateBtn.removeAttribute('data-version');
+            updateBtn.setAttribute('data-test-version', 'true');
+            updateBtn.innerText = t('ui_test_version');
+            updateBtn.onclick = null;
+        }
         
         async function checkGithubUpdates() {
+            const localIsTestVersion = isTestVersion(CURRENT_VERSION);
+            if (localIsTestVersion) renderTestVersionBadge();
+
             try {
                 // Use 'no-store' to always fetch fresh data and bypass the browser cache.
                 let res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases`, {
@@ -613,9 +792,12 @@ setInterval(monitorWidgetConnection, 1000);
                     console.log(`[Update Check] Local: ${cleanLocalVer} | GitHub: ${cleanGithubVer}`);
 
                     // 1. Update button logic
-                    if (cleanLocalVer !== cleanGithubVer) {
+                    if (localIsTestVersion) {
+                        renderTestVersionBadge();
+                    } else if (cleanLocalVer !== cleanGithubVer) {
                         const updateBtn = document.getElementById('update-btn');
                         updateBtn.style.display = 'block';
+                        updateBtn.removeAttribute('data-test-version');
                         updateBtn.setAttribute('data-version', latest.tag_name); 
                         updateBtn.innerText = t('ui_update_btn', {version: latest.tag_name});
                         updateBtn.onclick = () => window.open(latest.html_url, '_blank');
@@ -791,7 +973,9 @@ setInterval(monitorWidgetConnection, 1000);
 
             // UPDATE BUTTON DYNAMIC TRANSLATION:
             const updateBtn = document.getElementById('update-btn');
-            if (updateBtn && updateBtn.getAttribute('data-version')) {
+            if (updateBtn && updateBtn.getAttribute('data-test-version')) {
+                updateBtn.innerText = t('ui_test_version');
+            } else if (updateBtn && updateBtn.getAttribute('data-version')) {
                 updateBtn.innerText = t('ui_update_btn', {version: updateBtn.getAttribute('data-version')});
             }
 
@@ -802,12 +986,7 @@ setInterval(monitorWidgetConnection, 1000);
             
             updateApiStatusUI(document.getElementById('api-status-icon').getAttribute('data-last-status') || 'init');
             
-            if (!document.getElementById('btn-run').disabled) {
-                document.getElementById('btn-run').innerText = masterList.length > 0 ? t('ui_btn_start_active') : t('ui_btn_start_error');
-            } else {
-                if(API_KEY) document.getElementById('btn-run').innerText = t('ui_btn_downloading');
-                else document.getElementById('btn-run').innerText = t('ui_btn_start_req');
-            }
+            renderBaseActionButtons();
             
             updateTutLink(); 
             renderWebsocketStatus();
@@ -827,6 +1006,8 @@ setInterval(monitorWidgetConnection, 1000);
         let queuePersistenceReady = false;
         let SR_MAX_DURATION_MINUTES = normalizePositiveInteger(localStorage.getItem('ytm_sr_max_duration_minutes'), 15);
         let SR_REQUIRE_MUSIC_CATEGORY = localStorage.getItem('ytm_sr_require_music_category') !== 'false';
+        let SR_VOTESKIP_REQUIRED = normalizePositiveInteger(localStorage.getItem('ytm_sr_voteskip_required'), 5);
+        let voteSkipUsers = new Set();
         let initialSongLoaded = false;
         let activeHolidayVariant = null;
         const DEFAULT_STARTUP_SONGS = [
@@ -849,8 +1030,13 @@ setInterval(monitorWidgetConnection, 1000);
         const NOW_PLAYING_WIDGET_CHANNEL = 'ytm_now_playing_widget';
         const NOW_PLAYING_STREAMERBOT_ACTION = 'NowPlayingWidgetState';
         const NOW_PLAYING_STREAMERBOT_PUSH_INTERVAL = 500;
+        const WIDGET_LAST_COPIED_URL_KEY = 'ytm_widget_url_last_copied';
         let nowPlayingWidgetChannel = null;
         let lastNowPlayingStreamerBotPush = 0;
+        let nowPlayingWidgetStartupBurstTimeouts = [];
+        let WIDGET_AUDIO_ENABLED_CONFIG = localStorage.getItem('ytm_widget_audio_enabled') === 'true';
+        let widgetUrlBaseline = '';
+        let widgetUrlWarningEnabled = false;
         try {
             if ('BroadcastChannel' in window) nowPlayingWidgetChannel = new BroadcastChannel(NOW_PLAYING_WIDGET_CHANNEL);
         } catch (error) {
@@ -872,19 +1058,22 @@ setInterval(monitorWidgetConnection, 1000);
         let stopTransitionTimeout = null;
         let titleCache = {};    
         let dragSourceIndex = null;
+        let playlistDragSourceIndex = null;
         let isSrEnabled = false; 
+        let basePlaybackMode = 'ordered';
+        let baseActionButtonMode = API_KEY ? 'downloading' : 'api-required';
 
         function bindStaticUiEvents() {
             const actionHandlers = {
-                openPlaylistManager, startSystem, openSettings, prevSong, togglePlay,
+                openPlaylistManager, startSystem, startSystemShuffle, openSettings, prevSong, togglePlay,
                 stopSongUI, skipSong, addManualUrl, openBanList, toggleDebug,
                 openChangelog, openTutorial, closeSettings, switchSettingsTab,
                 saveWsConfig, toggleApiVisibility, saveApiKey, closeChangelog,
                 clearAllBans, closeBanList, closePlaylistManager, addBasePlaylist,
-                closeTutorial, copySbCode, copyWidgetUrl
+                closeTutorial, copySbCode, copyWidgetUrl, clearQueueWithConfirm
             };
 
-            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings };
+            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings, handleWidgetAudioToggle };
             const inputHandlers = { renderBaseList, updateTutLink, saveSongRequestSettings, updateWidgetUrlDisplay };
 
             document.querySelectorAll('[data-action]').forEach(el => {
@@ -918,7 +1107,9 @@ setInterval(monitorWidgetConnection, 1000);
         const tutWsPortInput = document.getElementById('tut-ws-port');
         const queuePersistInput = document.getElementById('queue-persist-cb');
         const srMaxDurationInput = document.getElementById('sr-max-duration-input');
+        const srVoteSkipInput = document.getElementById('sr-voteskip-input');
         const srMusicCategoryInput = document.getElementById('sr-music-category-cb');
+        const widgetAudioInput = document.getElementById('widget-audio-cb');
 
         if (wsHostInput) wsHostInput.value = WS_HOST;
         if (wsPortInput) wsPortInput.value = WS_PORT;
@@ -926,7 +1117,9 @@ setInterval(monitorWidgetConnection, 1000);
         if (tutWsPortInput) tutWsPortInput.value = WS_PORT;
         if (queuePersistInput) queuePersistInput.checked = SHOULD_PERSIST_QUEUE;
         if (srMaxDurationInput) srMaxDurationInput.value = SR_MAX_DURATION_MINUTES;
+        if (srVoteSkipInput) srVoteSkipInput.value = SR_VOTESKIP_REQUIRED;
         if (srMusicCategoryInput) srMusicCategoryInput.checked = SR_REQUIRE_MUSIC_CATEGORY;
+        if (widgetAudioInput) widgetAudioInput.checked = WIDGET_AUDIO_ENABLED_CONFIG;
 
         applyHolidayVariant();
         window.addEventListener('focus', refreshHolidayVariant);
@@ -942,6 +1135,8 @@ setInterval(monitorWidgetConnection, 1000);
         // ===================== SETTINGS MODAL =====================
         function openSettings() { 
             document.getElementById('api-key-input').value = API_KEY;
+            widgetUrlBaseline = getWidgetUrl();
+            widgetUrlWarningEnabled = true;
             updateWidgetUrlDisplay();
             renderSettingsMessages();
             document.getElementById('settings-modal').style.display = 'flex'; 
@@ -991,6 +1186,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if (!snapshot || (!snapshot.currentSongInfo && (!Array.isArray(snapshot.playQueue) || snapshot.playQueue.length === 0))) return false;
                 currentSongInfo = normalizeSongForStorage(snapshot.currentSongInfo);
                 currentSongStopped = false;
+                resetVoteSkipVotes();
                 playQueue = Array.isArray(snapshot.playQueue) ? snapshot.playQueue.map(normalizeSongForStorage).filter(Boolean) : [];
 
                 if (isHolidayStartupSong(currentSongInfo) && !activeHolidayVariant) {
@@ -1025,13 +1221,54 @@ setInterval(monitorWidgetConnection, 1000);
 
         function saveSongRequestSettings() {
             const durationInput = document.getElementById('sr-max-duration-input');
-            const digitsOnly = durationInput.value.replace(/\D/g, '');
-            SR_MAX_DURATION_MINUTES = normalizePositiveInteger(digitsOnly, SR_MAX_DURATION_MINUTES || 15);
+            const voteSkipInput = document.getElementById('sr-voteskip-input');
+            const durationDigitsOnly = durationInput.value.replace(/\D/g, '');
+            const voteSkipDigitsOnly = voteSkipInput.value.replace(/\D/g, '');
+            SR_MAX_DURATION_MINUTES = normalizePositiveInteger(durationDigitsOnly, SR_MAX_DURATION_MINUTES || 15);
+            SR_VOTESKIP_REQUIRED = normalizePositiveInteger(voteSkipDigitsOnly, SR_VOTESKIP_REQUIRED || 5);
             durationInput.value = SR_MAX_DURATION_MINUTES;
+            voteSkipInput.value = SR_VOTESKIP_REQUIRED;
             SR_REQUIRE_MUSIC_CATEGORY = document.getElementById('sr-music-category-cb').checked;
             localStorage.setItem('ytm_sr_max_duration_minutes', SR_MAX_DURATION_MINUTES.toString());
+            localStorage.setItem('ytm_sr_voteskip_required', SR_VOTESKIP_REQUIRED.toString());
             localStorage.setItem('ytm_sr_require_music_category', SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false');
             syncSongRequestSettingsToStreamerBot();
+        }
+
+        function handleWidgetAudioToggle() {
+            const input = document.getElementById('widget-audio-cb');
+            WIDGET_AUDIO_ENABLED_CONFIG = !!(input && input.checked);
+            localStorage.setItem('ytm_widget_audio_enabled', WIDGET_AUDIO_ENABLED_CONFIG ? 'true' : 'false');
+            updateWidgetUrlDisplay();
+        }
+
+        function setBaseActionButtonMode(mode) {
+            baseActionButtonMode = mode;
+            renderBaseActionButtons();
+        }
+
+        function renderBaseActionButtons() {
+            const startBtn = document.getElementById('btn-run');
+            const shuffleBtn = document.getElementById('btn-shuffle');
+            if (!startBtn || !shuffleBtn) return;
+
+            const mode = baseActionButtonMode || (API_KEY ? 'downloading' : 'api-required');
+            const isReady = mode === 'ready';
+            startBtn.disabled = !isReady;
+            shuffleBtn.disabled = !isReady;
+
+            if (isReady) {
+                startBtn.innerText = t('ui_btn_start_order');
+                shuffleBtn.innerText = t('ui_btn_shuffle');
+                return;
+            }
+
+            const textKey = mode === 'error'
+                ? 'ui_btn_start_error'
+                : (mode === 'empty' ? 'ui_btn_no_playlists' : (mode === 'api-required' ? 'ui_btn_start_req' : 'ui_btn_downloading'));
+            const text = t(textKey);
+            startBtn.innerText = text;
+            shuffleBtn.innerText = text;
         }
 
         function syncSongRequestSettingsToStreamerBot() {
@@ -1041,6 +1278,7 @@ setInterval(monitorWidgetConnection, 1000);
                 action: { name: 'SongRequestSettings' },
                 args: {
                     maxDurationMinutes: SR_MAX_DURATION_MINUTES.toString(),
+                    voteSkipRequired: SR_VOTESKIP_REQUIRED.toString(),
                     requireMusicCategory: SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false'
                 },
                 id: 'SongRequestSettings'
@@ -1136,20 +1374,34 @@ setInterval(monitorWidgetConnection, 1000);
             const hostInput = document.getElementById('ws-host-input');
             const portInput = document.getElementById('ws-port-input');
             const passInput = document.getElementById('ws-pass-input');
+            const audioInput = document.getElementById('widget-audio-cb');
             const host = normalizeWebsocketHost((hostInput && hostInput.value.trim()) ? hostInput.value.trim() : WS_HOST);
             const port = (portInput && portInput.value.trim()) ? portInput.value.trim() : WS_PORT;
             const pass = passInput ? passInput.value.trim() : WS_PASS;
+            const audioEnabled = audioInput ? audioInput.checked : WIDGET_AUDIO_ENABLED_CONFIG;
 
             if (host && host !== DEFAULT_STREAMERBOT_WS_HOST) url.searchParams.set('server', host);
             if (port && port !== '8080') url.searchParams.set('port', port);
             if (pass) url.searchParams.set('pass', pass);
+            if (audioEnabled) url.searchParams.set('audio', '1');
             if (currentLang) url.searchParams.set('lang', currentLang);
             return url.toString();
         }
 
+        function updateWidgetUrlWarning(currentUrl) {
+            const warning = document.getElementById('widget-url-warning');
+            if (!warning) return;
+            const lastCopiedUrl = localStorage.getItem(WIDGET_LAST_COPIED_URL_KEY) || '';
+            const changedAfterCopy = !!lastCopiedUrl && lastCopiedUrl !== currentUrl;
+            const changedAfterOpen = widgetUrlWarningEnabled && !!widgetUrlBaseline && widgetUrlBaseline !== currentUrl;
+            warning.classList.toggle('is-hidden', !changedAfterCopy && !changedAfterOpen);
+        }
+
         function updateWidgetUrlDisplay() {
             const output = document.getElementById('widget-url-output');
-            if (output) output.value = getWidgetUrl();
+            const url = getWidgetUrl();
+            if (output) output.value = url;
+            updateWidgetUrlWarning(url);
         }
 
         function copyWidgetUrl() {
@@ -1161,6 +1413,10 @@ setInterval(monitorWidgetConnection, 1000);
             output.setSelectionRange(0, 99999);
 
             const done = () => {
+                localStorage.setItem(WIDGET_LAST_COPIED_URL_KEY, output.value);
+                widgetUrlBaseline = output.value;
+                widgetUrlWarningEnabled = true;
+                updateWidgetUrlWarning(output.value);
                 const btn = document.getElementById('btn-copy-widget-url');
                 if (!btn) return;
                 const oldText = btn.innerText;
@@ -1221,7 +1477,7 @@ setInterval(monitorWidgetConnection, 1000);
             if (!API_KEY || API_KEY.trim() === '') {
                 updateApiStatusUI('error');
                 openSettings(); 
-                document.getElementById('btn-run').innerText = t('ui_btn_start_req');
+                setBaseActionButtonMode('api-required');
                 return false;
             }
             return true;
@@ -1239,7 +1495,7 @@ setInterval(monitorWidgetConnection, 1000);
                 localStorage.setItem('ytm_api_key', API_KEY);
                 log("🔑 API Key Verified.");
                 if (player && typeof player.getPlayerState === 'function') fetchFullPlaylistFromAPI();
-                else document.getElementById('btn-run').innerText = t('ui_btn_downloading');
+                else setBaseActionButtonMode('downloading');
             } else {
                 alert("Invalid API Key!");
             }
@@ -1358,6 +1614,48 @@ setInterval(monitorWidgetConnection, 1000);
             fetchFullPlaylistFromAPI(); 
         }
 
+        function savePlaylistOrder() {
+            localStorage.setItem('ytm_base_playlists', JSON.stringify(savedPlaylists));
+        }
+
+        function handlePlaylistDragStart(e) {
+            playlistDragSourceIndex = parseInt(e.currentTarget.getAttribute('data-index'));
+            e.currentTarget.style.opacity = '0.4';
+        }
+
+        function handlePlaylistDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.style.borderTop = '3px solid var(--accent)';
+        }
+
+        function handlePlaylistDragLeave(e) {
+            e.currentTarget.style.borderTop = '';
+        }
+
+        function handlePlaylistDrop(e) {
+            e.preventDefault();
+            e.currentTarget.style.borderTop = '';
+            const targetIndexStr = e.currentTarget.getAttribute('data-index');
+            const targetIndex = targetIndexStr ? parseInt(targetIndexStr) : 0;
+
+            if (playlistDragSourceIndex !== null && playlistDragSourceIndex !== targetIndex) {
+                const draggedPlaylist = savedPlaylists.splice(playlistDragSourceIndex, 1)[0];
+                savedPlaylists.splice(targetIndex, 0, draggedPlaylist);
+                savePlaylistOrder();
+                log("Playlist order updated.", "normal");
+                renderPlaylistManager();
+                fetchFullPlaylistFromAPI();
+                return;
+            }
+
+            renderPlaylistManager();
+        }
+
+        function handlePlaylistDragEnd(e) {
+            playlistDragSourceIndex = null;
+            renderPlaylistManager();
+        }
+
         function openPlaylistManager() { renderPlaylistManager(); document.getElementById('playlist-modal').style.display = 'flex'; }
         function closePlaylistManager() { document.getElementById('playlist-modal').style.display = 'none'; }
 
@@ -1370,9 +1668,10 @@ setInterval(monitorWidgetConnection, 1000);
             container.innerHTML = savedPlaylists.map((p, i) => {
                 let displayTitle = (p.id === 'PL9O6SbAVrliMxCJ-40pYLNZHXFYYZ5SiC' && (p.title === 'default_ytm' || p.title.includes('Domyślna') || p.title.includes('Default'))) ? t('ui_default_playlist_name') : p.title;
                 return `
-                <div class="modal-item playlist-style">
+                <div class="modal-item playlist-style" draggable="true" data-index="${i}" ondragstart="handlePlaylistDragStart(event)" ondragover="handlePlaylistDragOver(event)" ondragleave="handlePlaylistDragLeave(event)" ondrop="handlePlaylistDrop(event)" ondragend="handlePlaylistDragEnd(event)">
+                    <div class="playlist-order-handle" aria-hidden="true">☰</div>
                     <div class="modal-item-title" title="${p.id}">🎵 ${displayTitle}</div>
-                    <button class="btn-modal-action danger" onclick="removeBasePlaylist(${i})">${t('ui_remove')}</button>
+                    <button class="btn-modal-action danger" draggable="false" onclick="removeBasePlaylist(${i})">${t('ui_remove')}</button>
                 </div>
             `}).join('');
         }
@@ -1740,6 +2039,13 @@ setInterval(monitorWidgetConnection, 1000);
             publishNowPlayingWidgetStateToStreamerBot(state, forceStreamerBot);
         }
 
+        function publishNowPlayingWidgetStartupBurst() {
+            nowPlayingWidgetStartupBurstTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+            nowPlayingWidgetStartupBurstTimeouts = [0, 350, 1200, 3000].map(delay => setTimeout(() => {
+                publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
+            }, delay));
+        }
+
         function updateNowPlayingProgress() {
             const state = getNowPlayingWidgetState();
             updateNowPlayingCardProgress('panel-now-playing', state);
@@ -1762,6 +2068,7 @@ setInterval(monitorWidgetConnection, 1000);
 
         function stopCurrentSongWithWave() {
             clearTimeout(stopTransitionTimeout);
+            resetVoteSkipVotes();
             nowPlayingWaveHoldUntilStart = false;
             triggerNowPlayingWaveEffect('fade', 900);
             player.stopVideo();
@@ -1785,17 +2092,14 @@ setInterval(monitorWidgetConnection, 1000);
         function toggleDebug() {
             const consoleEl = document.getElementById('debug-console');
             const topSection = document.getElementById('app-top-section');
-            const btns = document.getElementById('floating-btns');
             
             if (consoleEl.style.display === 'block') {
                 consoleEl.style.display = 'none';
                 topSection.classList.remove('debug-open');
-                btns.style.bottom = '50px';
             } else {
                 consoleEl.style.display = 'block';
                 topSection.classList.add('debug-open');
                 consoleEl.scrollTop = consoleEl.scrollHeight;
-                btns.style.bottom = '200px'; 
             }
         }
 
@@ -1853,7 +2157,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if(isValid) fetchFullPlaylistFromAPI();
                 else {
                     log("⚠️ API Key error.", "error");
-                    document.getElementById('btn-run').innerText = t('ui_btn_start_error');
+                    setBaseActionButtonMode('error');
                     openSettings();
                 }
             }
@@ -1864,6 +2168,7 @@ setInterval(monitorWidgetConnection, 1000);
             initialSongLoaded = true;
             currentSongInfo = normalizeSongForStorage({ ...song, user: 'Auto', isStartup: true });
             currentSongStopped = false;
+            resetVoteSkipVotes();
             currentSongInfo.isStartup = true;
             player.cueVideoById(currentSongInfo.id);
             document.getElementById('now-playing-title').innerText = currentSongInfo.title;
@@ -1914,12 +2219,11 @@ setInterval(monitorWidgetConnection, 1000);
             if(savedPlaylists.length === 0) {
                 document.getElementById('base-list').innerHTML = `<div class="ex-style-068">${t('ui_empty_playlists')}</div>`;
                 document.getElementById('base-count').innerText = `🎵 0`;
-                document.getElementById('btn-run').disabled = true;
+                setBaseActionButtonMode('empty');
                 return;
             }
 
-            document.getElementById('btn-run').innerText = t('ui_btn_downloading');
-            document.getElementById('btn-run').disabled = true;
+            setBaseActionButtonMode('downloading');
             masterList = []; titleCache = {};
 
             try {
@@ -1934,7 +2238,7 @@ setInterval(monitorWidgetConnection, 1000);
                         
                         if(data.error) {
                             if (data.error.code === 400 || data.error.code === 403) {
-                                document.getElementById('btn-run').innerText = t('ui_btn_start_error');
+                                setBaseActionButtonMode('error');
                                 updateApiStatusUI('error');
                                 openSettings();
                                 return; 
@@ -1970,37 +2274,57 @@ setInterval(monitorWidgetConnection, 1000);
                 
                 log(`Loaded ${masterList.length} tracks.`);
                 document.getElementById('base-count').innerText = `🎵 ${masterList.length}`;
-                const btn = document.getElementById('btn-run');
-                btn.innerText = t('ui_btn_start_active');
-                btn.disabled = false;
+                setBaseActionButtonMode(masterList.length > 0 ? 'ready' : 'empty');
                 renderBaseList();
             } catch (e) {
                 log("Error: " + e.message, "error");
+                setBaseActionButtonMode('error');
             }
         }
 
-        function startSystem() {
-            if (masterList.length === 0) return;
-            log("Shuffling...");
-            let shuffled = [...masterList];
-            for (let i = shuffled.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        function buildBasePlaybackQueue(shuffle = false) {
+            const ids = [...masterList];
+            if (shuffle) {
+                for (let i = ids.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [ids[i], ids[j]] = [ids[j], ids[i]];
+                }
             }
-            playQueue = shuffled.map(id => {
+
+            return ids.map(id => {
                 let info = titleCache[id];
-                return { id: id, title: info.title, author: info.author, user: "Auto", duration: info.duration };
-            });
+                return info ? { id: id, title: info.title, author: info.author, user: "Auto", duration: info.duration } : null;
+            }).filter(Boolean);
+        }
+
+        function startBasePlayback(mode = basePlaybackMode) {
+            if (masterList.length === 0) return;
+            basePlaybackMode = mode === 'shuffle' ? 'shuffle' : 'ordered';
+            log(basePlaybackMode === 'shuffle' ? "Shuffling base playlists..." : "Starting base playlists in loaded order...");
+            playQueue = buildBasePlaybackQueue(basePlaybackMode === 'shuffle');
+            if (playQueue.length === 0) {
+                renderQueue();
+                return;
+            }
             renderQueue(); playNext();
         }
 
-        function playNext() {
+        function startSystem() {
+            startBasePlayback('ordered');
+        }
+
+        function startSystemShuffle() {
+            startBasePlayback('shuffle');
+        }
+
+        function playNext(refillMode = basePlaybackMode) {
             clearTimeout(skipTransitionTimeout);
             clearTimeout(stopTransitionTimeout);
             skipTransitionTimeout = null;
             stopTransitionTimeout = null;
             clearNowPlayingWaveEffect();
             if(currentSongInfo) playHistory.push(currentSongInfo);
+            resetVoteSkipVotes();
             
             if (playQueue.length > 0) {
                 currentSongInfo = playQueue.shift();
@@ -2013,12 +2337,12 @@ setInterval(monitorWidgetConnection, 1000);
                 document.getElementById('now-playing-title').innerText = t('ui_waiting_start');
                 document.getElementById('now-playing-meta').innerText = "---";
                 renderQueue();
-                startSystem(); 
+                startBasePlayback(refillMode); 
             }
         }
 
         function onPlayerStateChange(e) {
-            if (e.data === 0) playNext(); 
+            if (e.data === 0) playNext(playQueue.length === 0 ? 'shuffle' : basePlaybackMode); 
             if (e.data === 2 && currentSongInfo && !currentSongStopped) {
                 triggerNowPlayingWaveEffect('fade', 900);
             }
@@ -2030,18 +2354,21 @@ setInterval(monitorWidgetConnection, 1000);
                 clearNowPlayingWaveEffect();
                 document.getElementById('now-playing-title').innerText = currentSongInfo.title;
                 document.getElementById('now-playing-meta').innerText = currentSongInfo.user === "Auto" ? `Auto` : `👤 ${currentSongInfo.user}`;
+                publishNowPlayingWidgetStartupBurst();
             }
         }
 
         function skipSong() {
             log("⏭️ SKIP", "warn");
             if (!currentSongInfo) {
-                playNext();
+                playNext(playQueue.length === 0 ? 'shuffle' : basePlaybackMode);
                 return;
             }
 
             clearTimeout(skipTransitionTimeout);
+            resetVoteSkipVotes();
             triggerNowPlayingWaveEffect('skip', 820);
+            const refillMode = playQueue.length === 0 ? 'shuffle' : basePlaybackMode;
             skipTransitionTimeout = setTimeout(() => {
                 nowPlayingWaveHoldUntilStart = true;
                 nowPlayingWaveEffect = '';
@@ -2049,14 +2376,14 @@ setInterval(monitorWidgetConnection, 1000);
                 skipTransitionTimeout = null;
                 lastNowPlayingStreamerBotPush = 0;
                 publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
-                playNext();
+                playNext(refillMode);
             }, 680);
         }
         
         function togglePlay() { 
             if (!currentSongInfo) {
                 if (playQueue.length === 0) {
-                    if (masterList.length > 0) startSystem();
+                    if (masterList.length > 0) startBasePlayback(basePlaybackMode);
                 } else {
                     playNext();
                 }
@@ -2086,7 +2413,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if (playQueue.length === 0) {
                     if (masterList.length > 0) {
                         sendChatMessage(t('msg_base_play', {user: user}));
-                        startSystem();
+                        startBasePlayback(basePlaybackMode);
                     } else {
                         sendChatMessage(t('msg_base_empty', {user: user}));
                     }
@@ -2133,6 +2460,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if(currentSongInfo) playQueue.unshift(currentSongInfo);
                 currentSongInfo = playHistory.pop();
                 currentSongStopped = false;
+                resetVoteSkipVotes();
                 player.loadVideoById(currentSongInfo.id);
                 renderQueue();
             } else player.seekTo(0); 
@@ -2209,10 +2537,26 @@ setInterval(monitorWidgetConnection, 1000);
             renderQueue();
         }
 
+        function clearQueueWithConfirm() {
+            if (playQueue.length === 0) return;
+            if (!confirm(t('ui_clear_queue_confirm', {count: playQueue.length}))) return;
+            playQueue = [];
+            renderQueue();
+            log("Cleared queued tracks.", "warn");
+        }
+
         function sendChatMessage(msg) {
             if(canUseStreamerBotWebsocket()) {
                 ws.send(JSON.stringify({"request": "DoAction", "action": { "name": "ChatMessage" }, "args": { "message": msg }, "id": "MsgOut" }));
             }
+        }
+
+        function resetVoteSkipVotes() {
+            voteSkipUsers.clear();
+        }
+
+        function getVoteSkipUserKey(user) {
+            return String(user || 'Viewer').trim().toLowerCase() || 'viewer';
         }
 
         function handleGetSong(user) {
@@ -2235,6 +2579,55 @@ setInterval(monitorWidgetConnection, 1000);
                 sendChatMessage(t('msg_skip_empty', {user: user}));
             }
             skipSong(); 
+        }
+
+        function handleVoteSkip(user) {
+            const voter = user || 'Viewer';
+            const required = Math.max(1, SR_VOTESKIP_REQUIRED || 5);
+
+            if (skipTransitionTimeout) {
+                sendChatMessage(t('msg_voteskip_skipping', {user: voter}));
+                return;
+            }
+
+            if (!currentSongInfo || currentSongStopped) {
+                sendChatMessage(t('msg_voteskip_empty', {user: voter}));
+                return;
+            }
+
+            const userKey = getVoteSkipUserKey(voter);
+            if (voteSkipUsers.has(userKey)) {
+                sendChatMessage(t('msg_voteskip_duplicate', {
+                    user: voter,
+                    votes: voteSkipUsers.size,
+                    required: required,
+                    left: Math.max(0, required - voteSkipUsers.size)
+                }));
+                return;
+            }
+
+            voteSkipUsers.add(userKey);
+            const votes = voteSkipUsers.size;
+            const left = Math.max(0, required - votes);
+
+            if (votes >= required) {
+                sendChatMessage(t('msg_voteskip_passed', {
+                    user: voter,
+                    votes: votes,
+                    required: required,
+                    author: currentSongInfo.author,
+                    title: currentSongInfo.title
+                }));
+                skipSong();
+                return;
+            }
+
+            sendChatMessage(t('msg_voteskip_count', {
+                user: voter,
+                votes: votes,
+                required: required,
+                left: left
+            }));
         }
 
         function handleWrongSong(user) {
@@ -2281,8 +2674,10 @@ setInterval(monitorWidgetConnection, 1000);
         function renderQueue() {
             const queueContainer = document.getElementById('queue-list');
             const nowPlayingBox = document.getElementById('now-playing-content');
+            const clearQueueBtn = document.getElementById('btn-clear-queue');
             
             document.getElementById('queue-count').innerText = '🎵 ' + (playQueue.length + (currentSongInfo ? 1 : 0));
+            if (clearQueueBtn) clearQueueBtn.disabled = playQueue.length === 0;
             
             let totalSeconds = 0;
             if (currentSongInfo) totalSeconds += (currentSongInfo.duration || 210);
@@ -2312,6 +2707,7 @@ setInterval(monitorWidgetConnection, 1000);
 
                 return `
                 <div class="q-item ${typeClass} ${animClass}" draggable="true" data-index="${i}" ondragstart="handleDragStart(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" ondragend="handleDragEnd(event)">
+                    <div class="queue-drag-handle" aria-hidden="true">☰</div>
                     <div class="track-num">${i + 2}.</div>
                     <img src="https://i.ytimg.com/vi/${song.id}/default.jpg">
                     <div class="track-info">
@@ -2514,6 +2910,7 @@ setInterval(monitorWidgetConnection, 1000);
                         else if (inner.type === "SONG_REQUEST_FORCE") addSongFromChat(inner, true); 
                         else if (inner.type === "GET_SONG") handleGetSong(inner.user);
                         else if (inner.type === "SKIP_SONG") handleSkipSong(inner.user);
+                        else if (inner.type === "VOTE_SKIP") handleVoteSkip(inner.user);
                         else if (inner.type === "WRONG_SONG") handleWrongSong(inner.user);
                         else if (inner.type === "VOLUME") handleVolume(inner);
                         
@@ -2565,6 +2962,11 @@ Object.assign(window, {
     handleDragLeave,
     handleDrop,
     handleDragEnd,
+    handlePlaylistDragStart,
+    handlePlaylistDragOver,
+    handlePlaylistDragLeave,
+    handlePlaylistDrop,
+    handlePlaylistDragEnd,
     banCurrentSong,
     banSong,
     removeSongFromUI,

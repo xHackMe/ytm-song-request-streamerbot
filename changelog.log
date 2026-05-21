@@ -1,3 +1,21 @@
+Release v1.2.2
+📜 Changelog 21.05.2026
+
+NEW Added !voteskip with configurable required vote count, per-track vote reset, chat responses, custom message support, and updated Streamer.bot import actions.
+NEW Added an optional OBS widget audio mode that appends audio=1 to the widget URL and syncs a hidden YouTube player in the widget.
+NEW Added a widget URL replacement warning that appears when widget-link settings change and the OBS URL should be replaced.
+NEW Added queue clearing with a confirmation prompt while keeping the currently playing song untouched.
+NEW Split the base playlist start action into START for loaded playlist order and SHUFFLE for random order, with short UI descriptions.
+NEW Added drag and drop reordering for base playlists in the playlist manager, saved locally and used by START order.
+NEW Added visible drag handles to both base playlists and right-side queued tracks.
+CHANGE Aligned the !SR Request Limits layout with !voteskip on the right and changed the YouTube Music category option to a switch.
+CHANGE Made the update, changelog, and help buttons sit horizontally above the footer.
+CHANGE Made NEXT and natural song endings refill an empty queue using shuffle mode instead of ordered start.
+CHANGE Embedded the favicon directly in index.html as a base64 data URL so favicon.ico is no longer required by the page.
+CHANGE Bumped the asset cache key so OBS reloads the updated widget script.
+CHANGE Added translated widget audio and widget URL warning text for all supported languages.
+FIX Improved OBS widget startup reliability by retrying the Streamer.bot subscription after the widget websocket opens and forcing a short state resend when playback starts.
+
 Release v1.2.1a
 📜 Changelog 16.05.2026
 
