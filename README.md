@@ -58,7 +58,7 @@ This is required for chat commands to communicate with the web player.
 2. Follow the built-in, interactive tutorial.
 3. You will need a **free YouTube Data API v3 key** from Google Cloud Console (instructions provided inside the app).
 
-### Step 6: Widget (Optionjal)
+### Step 6: Widget (Optional)
 1. Open Settings > General > OBS Widget Configuration, copy the generated URL, and paste it into an OBS Browser Source. The link automatically uses your WebSocket port and password settings.
 2. Set your preferred resolution. Recommended: 400x200px
 
