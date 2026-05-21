@@ -1,20 +1,36 @@
-Release v1.2.2T
-📜 Changelog 17.05.2026
+Release v1.2.3T
+📜 Changelog 22.05.2026
 
+NEW Added settings export/import backup for playlists, bans, custom chat messages, WebSocket settings, request limits, queue persistence, and widget settings. The YouTube API key is intentionally skipped.
+NEW Added a diagnostics panel for WebSocket status, Streamer.bot import version, widget bridge, widget state, request-limit sync, and API key presence.
+NEW Added automatic Streamer.bot import checking with a clear "import required" warning that lists missing or outdated parts.
+NEW Added an OBS widget test button that sends a temporary test card to the widget without changing the real queue.
+CHANGE Replaced native browser alert/confirm popups with in-app confirmation and toast messages.
+CHANGE Updated the Streamer.bot import package with a new YtmImportDiagnostics action.
+CHANGE Updated README, app version, and asset cache key for the v1.2.3T test build.
+CHANGE Import-required messages now point users to HELP as the place to copy the current Streamer.bot import code.
+CHANGE Replaced the HELP text in the import warning with an actual translated HELP button that opens the tutorial.
+CHANGE Split the Streamer.bot import version from the page version. The current import is v1.2.3T-I2 for page v1.2.3T.
+CHANGE Added the import version to the footer and tightened the footer layout so holiday messages can wrap without pushing the version text out of place.
+CHANGE Updated import diagnostics to v1.2.3T-I2. Diagnostics now checks required actions, commands, and queues, including missing or disabled components.
+
+Release v1.2.2
+📜 Changelog 21.05.2026
+
+NEW Added !voteskip with configurable required vote count, per-track vote reset, chat responses, custom message support, and updated Streamer.bot import actions.
+NEW Added an optional OBS widget audio mode that appends audio=1 to the widget URL and syncs a hidden YouTube player in the widget.
+NEW Added a widget URL replacement warning that appears when widget-link settings change and the OBS URL should be replaced.
 NEW Added queue clearing with a confirmation prompt while keeping the currently playing song untouched.
 NEW Split the base playlist start action into START for loaded playlist order and SHUFFLE for random order, with short UI descriptions.
 NEW Added drag and drop reordering for base playlists in the playlist manager, saved locally and used by START order.
 NEW Added visible drag handles to both base playlists and right-side queued tracks.
-CHANGE Made the update, changelog, and help buttons sit horizontally near the footer and slide out individually on hover.
+CHANGE Aligned the !SR Request Limits layout with !voteskip on the right and changed the YouTube Music category option to a switch.
+CHANGE Made the update, changelog, and help buttons sit horizontally above the footer.
 CHANGE Made NEXT and natural song endings refill an empty queue using shuffle mode instead of ordered start.
 CHANGE Embedded the favicon directly in index.html as a base64 data URL so favicon.ico is no longer required by the page.
-
-Release v1.2.2
-📜 Changelog 16.05.2026
-
-NEW Added an optional OBS widget audio mode that appends audio=1 to the widget URL and syncs a hidden YouTube player in the widget.
-NEW Added a widget URL replacement warning that appears when widget-link settings change and the OBS URL should be replaced.
+CHANGE Bumped the asset cache key so OBS reloads the updated widget script.
 CHANGE Added translated widget audio and widget URL warning text for all supported languages.
+FIX Improved OBS widget startup reliability by retrying the Streamer.bot subscription after the widget websocket opens and forcing a short state resend when playback starts.
 
 Release v1.2.1a
 📜 Changelog 16.05.2026

@@ -55,6 +55,8 @@ let widgetHiddenReason = '';
 let widgetStatusKey = '';
 let widgetWs = null;
 let widgetWsReconnectTimeout = null;
+let widgetWsFallbackSubscribeTimeout = null;
+let widgetWsSubscribed = false;
 let widgetAudioPlayer = null;
 let widgetAudioReady = false;
 let widgetAudioSongId = '';
@@ -637,40 +639,68 @@ async function createStreamerBotAuthentication(password, salt, challenge) {
     return toBase64(authBuffer);
 }
 
-function subscribeWidgetToStreamerBotEvents() {
-    if (widgetWs && widgetWs.readyState === WebSocket.OPEN) {
-        widgetWs.send(JSON.stringify({ request: 'Subscribe', events: { General: ['Custom'] }, id: 'WidgetSub' }));
+function clearWidgetFallbackSubscribe() {
+    clearTimeout(widgetWsFallbackSubscribeTimeout);
+    widgetWsFallbackSubscribeTimeout = null;
+}
+
+function subscribeWidgetToStreamerBotEvents(socket = widgetWs) {
+    if (socket && socket === widgetWs && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ request: 'Subscribe', events: { General: ['Custom'] }, id: 'WidgetSub' }));
+        widgetWsSubscribed = true;
+        clearWidgetFallbackSubscribe();
     }
 }
 
-async function handleWidgetStreamerBotHello(raw) {
+async function handleWidgetStreamerBotHello(raw, socket = widgetWs) {
+    if (socket !== widgetWs) return;
+    clearWidgetFallbackSubscribe();
+
     if (raw.authentication) {
         if (!WIDGET_WS_PASS) return;
         try {
             const authentication = await createStreamerBotAuthentication(WIDGET_WS_PASS, raw.authentication.salt, raw.authentication.challenge);
-            widgetWs.send(JSON.stringify({ request: 'Authenticate', authentication, id: 'WidgetAuth' }));
+            if (socket === widgetWs && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ request: 'Authenticate', authentication, id: 'WidgetAuth' }));
+            }
         } catch (error) {}
         return;
     }
 
-    subscribeWidgetToStreamerBotEvents();
+    subscribeWidgetToStreamerBotEvents(socket);
 }
 
 function connectWidgetWebsocket() {
     if (typeof WebSocket === 'undefined') return;
     clearTimeout(widgetWsReconnectTimeout);
-    widgetWs = new WebSocket(buildStreamerBotWebsocketUrl(WIDGET_WS_HOST, WIDGET_WS_PORT));
+    clearWidgetFallbackSubscribe();
+    widgetWsSubscribed = false;
+    const socket = new WebSocket(buildStreamerBotWebsocketUrl(WIDGET_WS_HOST, WIDGET_WS_PORT));
+    widgetWs = socket;
 
-    widgetWs.onmessage = async event => {
+    socket.onopen = () => {
+        if (socket !== widgetWs || WIDGET_WS_PASS) return;
+        widgetWsFallbackSubscribeTimeout = setTimeout(() => {
+            if (socket === widgetWs && !widgetWsSubscribed) {
+                subscribeWidgetToStreamerBotEvents(socket);
+            }
+        }, 750);
+    };
+
+    socket.onmessage = async event => {
+        if (socket !== widgetWs) return;
         try {
             const raw = JSON.parse(event.data.toString());
             if (raw.request === 'Hello') {
-                await handleWidgetStreamerBotHello(raw);
+                await handleWidgetStreamerBotHello(raw, socket);
                 return;
             }
-            if (raw.id === 'WidgetSub') return;
+            if (raw.id === 'WidgetSub') {
+                if (raw.status === 'ok') widgetWsSubscribed = true;
+                return;
+            }
             if (raw.id === 'WidgetAuth') {
-                if (raw.status === 'ok') subscribeWidgetToStreamerBotEvents();
+                if (raw.status === 'ok') subscribeWidgetToStreamerBotEvents(socket);
                 return;
             }
 
@@ -678,7 +708,15 @@ function connectWidgetWebsocket() {
         } catch (error) {}
     };
 
-    widgetWs.onclose = () => {
+    socket.onerror = () => {
+        if (socket !== widgetWs) return;
+        try { socket.close(); } catch (error) {}
+    };
+
+    socket.onclose = () => {
+        if (socket !== widgetWs) return;
+        clearWidgetFallbackSubscribe();
+        widgetWsSubscribed = false;
         widgetWsReconnectTimeout = setTimeout(connectWidgetWebsocket, 5000);
     };
 }
@@ -710,11 +748,57 @@ setInterval(monitorWidgetConnection, 1000);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.2T";
+        const CURRENT_VERSION = "v1.2.3T";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
+        const REQUIRED_STREAMERBOT_IMPORT_VERSION = "1.2.3T-I2";
+        const STREAMERBOT_DIAGNOSTICS_ACTION = "YtmImportDiagnostics";
+        const SETTINGS_BACKUP_TYPE = "YTM_SONG_REQUEST_SETTINGS_BACKUP";
+        const REQUIRED_IMPORT_FEATURES = [
+            { key: 'IMPORT_DIAGNOSTICS', label: 'YtmImportDiagnostics' },
+            { key: 'CHAT_MESSAGE', label: 'ChatMessage' },
+            { key: 'SONG_REQUEST_SETTINGS', label: 'SongRequestSettings' },
+            { key: 'NOW_PLAYING_WIDGET_STATE', label: 'NowPlayingWidgetState' },
+            { key: 'VOTE_SKIP', label: 'SongVoteSkip / !voteskip' }
+        ];
+        const REQUIRED_IMPORT_COMPONENTS = {
+            queues: [
+                { id: '80fb1bf6-3ab0-4e7f-a221-11ccd199111c', name: 'SongRequest' }
+            ],
+            actions: [
+                { id: '94d7e904-65a5-4bc9-b740-5db4b15fb384', name: 'SongRequest', queue: 'SongRequest' },
+                { id: '20ca3b4c-2f87-4c87-8fe0-1a45d03fabda', name: 'SongSkip', queue: 'SongRequest' },
+                { id: '1dca93a1-93f4-4ccc-968a-ac0d51a36b48', name: 'SongName', queue: 'SongRequest' },
+                { id: '31afbb0e-1bd6-401d-a688-c74f4638a327', name: 'ChatMessage', queue: 'SongRequest' },
+                { id: '5dbca670-b09f-455c-be38-45efc897449e', name: 'SongWrong', queue: 'SongRequest' },
+                { id: '0ab19324-7816-4a2f-85b6-4485bb7559c2', name: 'SongVolume', queue: 'SongRequest' },
+                { id: '93c93f58-a2c0-44aa-9fcc-21eca6bd3639', name: 'SongRequestForce', queue: 'SongRequest' },
+                { id: '2810ecba-ba84-4a87-a876-db4ee21e7a67', name: 'SongPlay', queue: 'SongRequest' },
+                { id: '0bd4f3b1-a85e-47a5-b555-90047baf9a31', name: 'SongPause', queue: 'SongRequest' },
+                { id: 'dca0e174-4cb8-45aa-b319-254c7969bbf3', name: 'SongStop', queue: 'SongRequest' },
+                { id: '7b511689-cf6f-499e-a06e-980978bb4376', name: 'SongRequestSettings', queue: 'SongRequest' },
+                { id: '481f0f0a-dfae-4152-ad60-90ad1750b981', name: 'NowPlayingWidgetState', queue: 'SongRequest' },
+                { id: 'f878f3d8-096f-4e9a-b9f0-024c1458e8c1', name: 'SongVoteSkip', queue: 'SongRequest' },
+                { name: 'YtmImportDiagnostics', queue: 'SongRequest' }
+            ],
+            commands: [
+                { id: '16422aad-ca07-43c6-b527-dc8f0a2f7c13', name: '!sr', aliases: ['!sr'], action: 'SongRequest' },
+                { id: 'a306e7a2-e751-4f2d-8da9-1cb7190c937a', name: '!srForce', aliases: ['!srForce', '!srforce'], action: 'SongRequestForce' },
+                { id: 'cfe7edd2-1ac5-49bf-bc06-1f7f96848937', name: '!song', aliases: ['!song', '!songname'], action: 'SongName' },
+                { id: 'f0c06e4b-adf2-4224-9187-7d67a8a83451', name: '!skip', aliases: ['!skip', '!skipsong'], action: 'SongSkip' },
+                { id: '5c6af3b5-f713-48ed-83bf-23c948ef9c37', name: '!voteskip', aliases: ['!voteskip', '!skipvote'], action: 'SongVoteSkip' },
+                { id: 'c20bddc3-36d8-4a9f-b0e1-a507233b0c40', name: '!wrongsong', aliases: ['!wrongsong', '!songwrong'], action: 'SongWrong' },
+                { id: '2c49515d-e91f-4078-a7fb-f24268ea4abb', name: '!volume', aliases: ['!volume', '!vol'], action: 'SongVolume' },
+                { id: '20eb9753-9b5e-4e69-b81e-c606903bdc35', name: '!play', aliases: ['!play'], action: 'SongPlay' },
+                { id: 'e520cf7f-b787-4ea8-b9c2-9af312730ed5', name: '!pause', aliases: ['!pause'], action: 'SongPause' },
+                { id: '33a78c74-c9bd-4ae3-b7ca-2e269967d824', name: '!stop', aliases: ['!stop'], action: 'SongStop' }
+            ]
+        };
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
         document.getElementById('app-version-display').innerText = CURRENT_VERSION;
+        if (document.getElementById('import-version-display')) {
+            document.getElementById('import-version-display').innerText = `Import v${REQUIRED_STREAMERBOT_IMPORT_VERSION}`;
+        }
 
         function isTestVersion(version) {
             return /t$/i.test(String(version || '').trim());
@@ -924,6 +1008,13 @@ setInterval(monitorWidgetConnection, 1000);
             }
         }
 
+        function renderFooterVersions() {
+            const appVersionEl = document.getElementById('app-version-display');
+            const importVersionEl = document.getElementById('import-version-display');
+            if (appVersionEl) appVersionEl.innerText = CURRENT_VERSION;
+            if (importVersionEl) importVersionEl.innerText = `${t('ui_import_version_short')} v${REQUIRED_STREAMERBOT_IMPORT_VERSION}`;
+        }
+
         function applyTranslations() {
             if(document.getElementById('lang-select')) document.getElementById('lang-select').value = currentLang;
             if(document.getElementById('tut-lang-select')) document.getElementById('tut-lang-select').value = currentLang;
@@ -949,9 +1040,12 @@ setInterval(monitorWidgetConnection, 1000);
             updateApiStatusUI(document.getElementById('api-status-icon').getAttribute('data-last-status') || 'init');
             
             renderBaseActionButtons();
+            renderFooterVersions();
             
             updateTutLink(); 
             renderWebsocketStatus();
+            renderImportStatusBanner();
+            renderDiagnosticsResults();
         }
 
         // =========================================================================
@@ -968,6 +1062,8 @@ setInterval(monitorWidgetConnection, 1000);
         let queuePersistenceReady = false;
         let SR_MAX_DURATION_MINUTES = normalizePositiveInteger(localStorage.getItem('ytm_sr_max_duration_minutes'), 15);
         let SR_REQUIRE_MUSIC_CATEGORY = localStorage.getItem('ytm_sr_require_music_category') !== 'false';
+        let SR_VOTESKIP_REQUIRED = normalizePositiveInteger(localStorage.getItem('ytm_sr_voteskip_required'), 5);
+        let voteSkipUsers = new Set();
         let initialSongLoaded = false;
         let activeHolidayVariant = null;
         const DEFAULT_STARTUP_SONGS = [
@@ -993,9 +1089,19 @@ setInterval(monitorWidgetConnection, 1000);
         const WIDGET_LAST_COPIED_URL_KEY = 'ytm_widget_url_last_copied';
         let nowPlayingWidgetChannel = null;
         let lastNowPlayingStreamerBotPush = 0;
+        let nowPlayingWidgetStartupBurstTimeouts = [];
         let WIDGET_AUDIO_ENABLED_CONFIG = localStorage.getItem('ytm_widget_audio_enabled') === 'true';
         let widgetUrlBaseline = '';
         let widgetUrlWarningEnabled = false;
+        let widgetTestState = null;
+        let widgetTestStateUntil = 0;
+        let importStatusState = 'unknown';
+        let importStatusMissingItems = [];
+        let importStatusVersion = '';
+        let importDiagnosticsWaiters = [];
+        let streamerBotRequestWaiters = new Map();
+        let importStatusCheckTimeout = null;
+        let lastDiagnosticsResults = [];
         try {
             if ('BroadcastChannel' in window) nowPlayingWidgetChannel = new BroadcastChannel(NOW_PLAYING_WIDGET_CHANNEL);
         } catch (error) {
@@ -1029,10 +1135,12 @@ setInterval(monitorWidgetConnection, 1000);
                 openChangelog, openTutorial, closeSettings, switchSettingsTab,
                 saveWsConfig, toggleApiVisibility, saveApiKey, closeChangelog,
                 clearAllBans, closeBanList, closePlaylistManager, addBasePlaylist,
-                closeTutorial, copySbCode, copyWidgetUrl, clearQueueWithConfirm
+                closeTutorial, copySbCode, copyWidgetUrl, clearQueueWithConfirm,
+                runDiagnostics, checkImportStatus, exportSettings, chooseSettingsImport,
+                sendWidgetTest
             };
 
-            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings, handleWidgetAudioToggle };
+            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings, handleWidgetAudioToggle, importSettingsFile };
             const inputHandlers = { renderBaseList, updateTutLink, saveSongRequestSettings, updateWidgetUrlDisplay };
 
             document.querySelectorAll('[data-action]').forEach(el => {
@@ -1066,6 +1174,7 @@ setInterval(monitorWidgetConnection, 1000);
         const tutWsPortInput = document.getElementById('tut-ws-port');
         const queuePersistInput = document.getElementById('queue-persist-cb');
         const srMaxDurationInput = document.getElementById('sr-max-duration-input');
+        const srVoteSkipInput = document.getElementById('sr-voteskip-input');
         const srMusicCategoryInput = document.getElementById('sr-music-category-cb');
         const widgetAudioInput = document.getElementById('widget-audio-cb');
 
@@ -1075,6 +1184,7 @@ setInterval(monitorWidgetConnection, 1000);
         if (tutWsPortInput) tutWsPortInput.value = WS_PORT;
         if (queuePersistInput) queuePersistInput.checked = SHOULD_PERSIST_QUEUE;
         if (srMaxDurationInput) srMaxDurationInput.value = SR_MAX_DURATION_MINUTES;
+        if (srVoteSkipInput) srVoteSkipInput.value = SR_VOTESKIP_REQUIRED;
         if (srMusicCategoryInput) srMusicCategoryInput.checked = SR_REQUIRE_MUSIC_CATEGORY;
         if (widgetAudioInput) widgetAudioInput.checked = WIDGET_AUDIO_ENABLED_CONFIG;
 
@@ -1105,6 +1215,510 @@ setInterval(monitorWidgetConnection, 1000);
             document.querySelectorAll('.settings-section').forEach(s => s.classList.remove('active'));
             document.getElementById(`tab-btn-${tabName}`).classList.add('active');
             document.getElementById(`tab-content-${tabName}`).classList.add('active');
+        }
+
+        function showToast(message, type = 'normal') {
+            const rootEl = document.getElementById('toast-root');
+            if (!rootEl) return;
+            const toast = document.createElement('div');
+            toast.className = 'toast' + (type === 'error' ? ' is-error' : (type === 'ok' ? ' is-ok' : (type === 'warn' ? ' is-warn' : '')));
+            toast.textContent = message;
+            rootEl.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 180);
+            }, 3600);
+        }
+
+        function showConfirm(message, onConfirm, options = {}) {
+            const modal = document.getElementById('confirm-modal');
+            const titleEl = document.getElementById('confirm-title');
+            const messageEl = document.getElementById('confirm-message');
+            const okBtn = document.getElementById('confirm-ok-btn');
+            const cancelBtn = document.getElementById('confirm-cancel-btn');
+            if (!modal || !messageEl || !okBtn || !cancelBtn) return;
+
+            titleEl.innerText = options.title || t('ui_confirm_title');
+            messageEl.innerText = message;
+            okBtn.innerText = options.okText || t('ui_confirm_ok');
+            cancelBtn.innerText = options.cancelText || t('ui_confirm_cancel');
+
+            const cleanup = () => {
+                modal.style.display = 'none';
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+            };
+
+            okBtn.onclick = () => {
+                cleanup();
+                if (typeof onConfirm === 'function') onConfirm();
+            };
+            cancelBtn.onclick = cleanup;
+            modal.style.display = 'flex';
+        }
+
+        function normalizeDiagnosticId(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function isComponentEnabled(component) {
+            if (!component || typeof component !== 'object') return false;
+            if (component.enabled === false || component.isEnabled === false || component.active === false) return false;
+            if (component.disabled === true || component.isDisabled === true) return false;
+            const textValue = String(component.enabled ?? component.isEnabled ?? component.active ?? '').toLowerCase();
+            if (textValue === 'false' || textValue === 'disabled' || textValue === '0') return false;
+            return true;
+        }
+
+        function componentName(component) {
+            return component && (component.name || component.Name || component.title || component.id || component.Id || '');
+        }
+
+        function componentId(component) {
+            return component && (component.id || component.Id || component.actionId || component.commandId || component.queueId || '');
+        }
+
+        function findComponent(list, required) {
+            if (!Array.isArray(list)) return null;
+            const requiredName = normalizeDiagnosticId(required.name);
+            const requiredId = normalizeDiagnosticId(required.id);
+            return list.find(item => {
+                const itemName = normalizeDiagnosticId(componentName(item));
+                const itemId = normalizeDiagnosticId(componentId(item));
+                return (requiredId && itemId === requiredId) || (requiredName && itemName === requiredName);
+            }) || null;
+        }
+
+        function collectArraysByKey(value, keys, found = [], visited = new Set()) {
+            if (!value || typeof value !== 'object' || visited.has(value)) return found;
+            visited.add(value);
+
+            Object.keys(value).forEach(key => {
+                const child = value[key];
+                if (keys.includes(key.toLowerCase()) && Array.isArray(child)) found.push(child);
+                else if (child && typeof child === 'object') collectArraysByKey(child, keys, found, visited);
+            });
+
+            return found;
+        }
+
+        function extractComponentList(response, keys) {
+            if (!response || typeof response !== 'object') return null;
+            const arrays = collectArraysByKey(response, keys.map(key => key.toLowerCase()));
+            if (!arrays.length) return null;
+            return arrays.find(array => array.length > 0) || arrays[0];
+        }
+
+        function getCommandAliases(command) {
+            const raw = [
+                command.command,
+                command.commands,
+                command.value,
+                command.name
+            ].filter(Boolean).join('\n');
+            return raw
+                .split(/[\r\n,]+/)
+                .map(alias => normalizeDiagnosticId(alias))
+                .filter(Boolean);
+        }
+
+        function getActionTriggerCommandIds(action) {
+            const triggers = Array.isArray(action && action.triggers) ? action.triggers : [];
+            return triggers.map(trigger => normalizeDiagnosticId(
+                typeof trigger === 'string'
+                    ? trigger
+                    : (trigger.commandId || trigger.command || trigger.id || trigger.Id)
+            )).filter(Boolean);
+        }
+
+        function queueMatches(queueValue, requiredQueue, queues) {
+            const normalizedValue = normalizeDiagnosticId(queueValue);
+            if (!normalizedValue) return false;
+            if (normalizedValue === normalizeDiagnosticId(requiredQueue)) return true;
+            const queue = findComponent(queues, { name: requiredQueue, id: requiredQueue });
+            if (!queue) return false;
+            return normalizedValue === normalizeDiagnosticId(componentId(queue)) || normalizedValue === normalizeDiagnosticId(componentName(queue));
+        }
+
+        function summarizeImportProblems(items, limit = 6) {
+            if (!Array.isArray(items) || items.length === 0) return '';
+            const visible = items.slice(0, limit);
+            const extra = items.length - visible.length;
+            return visible.join(', ') + (extra > 0 ? ', ' + t('ui_import_problem_more', { count: extra }) : '');
+        }
+
+        function resolveStreamerBotRequest(raw) {
+            if (!raw || !raw.id || !streamerBotRequestWaiters.has(raw.id)) return false;
+            const waiter = streamerBotRequestWaiters.get(raw.id);
+            streamerBotRequestWaiters.delete(raw.id);
+            clearTimeout(waiter.timeoutId);
+            waiter.resolve(raw);
+            return true;
+        }
+
+        function requestStreamerBotApi(requestName, extra = {}, timeoutMs = 1800) {
+            if (!canUseStreamerBotWebsocket()) return Promise.resolve(null);
+            const id = requestName + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+            return new Promise(resolve => {
+                const timeoutId = setTimeout(() => {
+                    streamerBotRequestWaiters.delete(id);
+                    resolve(null);
+                }, timeoutMs);
+
+                streamerBotRequestWaiters.set(id, { resolve, timeoutId });
+
+                try {
+                    ws.send(JSON.stringify({ request: requestName, id, ...extra }));
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    streamerBotRequestWaiters.delete(id);
+                    resolve(null);
+                }
+            });
+        }
+
+        async function inspectStreamerBotImportComponents() {
+            if (!canUseStreamerBotWebsocket()) {
+                return { issues: [], warnings: [t('ui_diag_ws_fail')], checked: { actions: false, commands: false, queues: false } };
+            }
+
+            const [actionsResponse, commandsResponse, queuesResponse] = await Promise.all([
+                requestStreamerBotApi('GetActions'),
+                requestStreamerBotApi('GetCommands'),
+                requestStreamerBotApi('GetQueues')
+            ]);
+
+            const actions = extractComponentList(actionsResponse, ['actions']);
+            const commands = extractComponentList(commandsResponse, ['commands']);
+            const queues = extractComponentList(queuesResponse, ['queues']);
+            const issues = [];
+            const warnings = [];
+
+            if (!queues) {
+                warnings.push(t('ui_import_live_queues_unavailable'));
+            } else {
+                REQUIRED_IMPORT_COMPONENTS.queues.forEach(required => {
+                    const queue = findComponent(queues, required);
+                    if (!queue) issues.push(t('ui_import_problem_missing', { type: t('ui_import_component_queue'), name: required.name }));
+                });
+            }
+
+            if (!actions) {
+                warnings.push(t('ui_import_live_actions_unavailable'));
+            } else {
+                REQUIRED_IMPORT_COMPONENTS.actions.forEach(required => {
+                    const action = findComponent(actions, required);
+                    if (!action) {
+                        issues.push(t('ui_import_problem_missing', { type: t('ui_import_component_action'), name: required.name }));
+                        return;
+                    }
+                    if (!isComponentEnabled(action)) issues.push(t('ui_import_problem_disabled', { type: t('ui_import_component_action'), name: required.name }));
+                    if (required.queue && queues && action.queue && !queueMatches(action.queue, required.queue, queues)) {
+                        issues.push(t('ui_import_problem_action_queue', { action: required.name, queue: required.queue }));
+                    }
+                });
+            }
+
+            if (!commands) {
+                warnings.push(t('ui_import_live_commands_unavailable'));
+            } else {
+                REQUIRED_IMPORT_COMPONENTS.commands.forEach(required => {
+                    const command = findComponent(commands, required);
+                    if (!command) {
+                        issues.push(t('ui_import_problem_missing', { type: t('ui_import_component_command'), name: required.name }));
+                        return;
+                    }
+                    if (!isComponentEnabled(command)) issues.push(t('ui_import_problem_disabled', { type: t('ui_import_component_command'), name: required.name }));
+
+                    const aliases = getCommandAliases(command);
+                    required.aliases.forEach(alias => {
+                        if (!aliases.includes(normalizeDiagnosticId(alias))) {
+                            issues.push(t('ui_import_problem_command_alias', { command: required.name, alias }));
+                        }
+                    });
+
+                    if (actions) {
+                        const action = findComponent(actions, { name: required.action });
+                        const triggerIds = getActionTriggerCommandIds(action);
+                        const commandId = normalizeDiagnosticId(componentId(command));
+                        if (action && triggerIds.length > 0 && commandId && !triggerIds.includes(commandId)) {
+                            issues.push(t('ui_import_problem_command_link', { command: required.name, action: required.action }));
+                        }
+                    }
+                });
+            }
+
+            return {
+                issues,
+                warnings,
+                checked: {
+                    actions: !!actions,
+                    commands: !!commands,
+                    queues: !!queues
+                }
+            };
+        }
+
+        function getImportValidationResult(payload, componentInspection = null) {
+            const version = String((payload && (payload.version || payload.importVersion)) || '').trim();
+            const features = new Set(
+                Array.isArray(payload && payload.features)
+                    ? payload.features.map(feature => String(feature).trim()).filter(Boolean)
+                    : []
+            );
+
+            const missing = [];
+            if (version !== REQUIRED_STREAMERBOT_IMPORT_VERSION) {
+                missing.push(t('ui_import_missing_version', {
+                    version: REQUIRED_STREAMERBOT_IMPORT_VERSION,
+                    current: version || '?'
+                }));
+            }
+
+            REQUIRED_IMPORT_FEATURES.forEach(feature => {
+                if (!features.has(feature.key)) missing.push(feature.label);
+            });
+
+            if (componentInspection && Array.isArray(componentInspection.issues)) {
+                missing.push(...componentInspection.issues);
+            }
+
+            return {
+                ok: missing.length === 0,
+                version,
+                missing,
+                warnings: componentInspection && Array.isArray(componentInspection.warnings) ? componentInspection.warnings : [],
+                componentInspection
+            };
+        }
+
+        function renderImportStatusBanner() {
+            const banner = document.getElementById('import-status-banner');
+            if (!banner) return;
+
+            let message = '';
+            let toneClass = '';
+
+            if (importStatusState === 'checking') {
+                message = t('ui_import_status_checking');
+                toneClass = 'is-warn';
+            } else if (importStatusState === 'missing') {
+                const missing = importStatusMissingItems.length ? summarizeImportProblems(importStatusMissingItems) : t('ui_import_required');
+                message = t('ui_import_status_missing', { missing });
+                toneClass = 'is-error';
+            }
+
+            banner.className = 'import-status-banner' + (toneClass ? ' ' + toneClass : '') + (message ? '' : ' is-hidden');
+            banner.textContent = '';
+
+            if (!message) return;
+
+            const messageEl = document.createElement('span');
+            messageEl.className = 'import-status-text';
+            messageEl.innerText = message;
+            banner.appendChild(messageEl);
+
+            if (importStatusState === 'missing') {
+                const helpBtn = document.createElement('button');
+                helpBtn.type = 'button';
+                helpBtn.className = 'btn-help import-help-btn';
+                helpBtn.innerText = t('ui_help_btn');
+                helpBtn.addEventListener('click', openTutorial);
+                banner.appendChild(helpBtn);
+            }
+        }
+
+        function setImportStatus(state, missingItems = [], version = '') {
+            importStatusState = state;
+            importStatusMissingItems = missingItems;
+            importStatusVersion = version;
+            renderImportStatusBanner();
+        }
+
+        function resolveImportDiagnosticsWaiters(payload) {
+            const waiters = importDiagnosticsWaiters.splice(0);
+            waiters.forEach(waiter => {
+                clearTimeout(waiter.timeoutId);
+                waiter.resolve(payload);
+            });
+        }
+
+        function resolveStreamerBotRequestWaiters(payload) {
+            streamerBotRequestWaiters.forEach(waiter => {
+                clearTimeout(waiter.timeoutId);
+                waiter.resolve(payload);
+            });
+            streamerBotRequestWaiters.clear();
+        }
+
+        function handleImportDiagnosticsPayload(payload) {
+            const result = getImportValidationResult(payload);
+            setImportStatus(result.ok ? 'ok' : 'missing', result.missing, result.version);
+            resolveImportDiagnosticsWaiters(payload);
+            return result;
+        }
+
+        function requestImportDiagnostics(timeoutMs = 2500) {
+            if (!canUseStreamerBotWebsocket()) return Promise.resolve(null);
+
+            return new Promise(resolve => {
+                const waiter = {
+                    resolve,
+                    timeoutId: null
+                };
+
+                waiter.timeoutId = setTimeout(() => {
+                    importDiagnosticsWaiters = importDiagnosticsWaiters.filter(item => item !== waiter);
+                    resolve(null);
+                }, timeoutMs);
+
+                importDiagnosticsWaiters.push(waiter);
+
+                try {
+                    ws.send(JSON.stringify({
+                        request: 'DoAction',
+                        action: { name: STREAMERBOT_DIAGNOSTICS_ACTION },
+                        args: { expectedVersion: REQUIRED_STREAMERBOT_IMPORT_VERSION },
+                        id: 'ImportDiagnostics'
+                    }));
+                } catch (error) {
+                    clearTimeout(waiter.timeoutId);
+                    importDiagnosticsWaiters = importDiagnosticsWaiters.filter(item => item !== waiter);
+                    resolve(null);
+                }
+            });
+        }
+
+        async function checkImportStatus(silent = false) {
+            if (!canUseStreamerBotWebsocket()) {
+                setImportStatus('unknown');
+                if (!silent) showToast(t('ui_diag_ws_fail'), 'error');
+                return { ok: false, version: '', missing: [t('ui_diag_ws')] };
+            }
+
+            setImportStatus('checking');
+            const payload = await requestImportDiagnostics();
+            if (!payload) {
+                const missing = [
+                    t('ui_import_missing_version', { version: REQUIRED_STREAMERBOT_IMPORT_VERSION, current: '?' }),
+                    'YtmImportDiagnostics'
+                ];
+                setImportStatus('missing', missing);
+                if (!silent) showToast(t('ui_import_required'), 'error');
+                return { ok: false, version: '', missing };
+            }
+
+            const componentInspection = await inspectStreamerBotImportComponents();
+            const result = getImportValidationResult(payload, componentInspection);
+            setImportStatus(result.ok ? 'ok' : 'missing', result.missing, result.version);
+            if (!silent) showToast(result.ok ? t('ui_import_status_ok') : t('ui_import_required'), result.ok ? 'ok' : 'error');
+            return result;
+        }
+
+        function scheduleImportStatusCheck() {
+            clearTimeout(importStatusCheckTimeout);
+            importStatusCheckTimeout = setTimeout(() => {
+                checkImportStatus(true);
+            }, 900);
+        }
+
+        function renderDiagnosticsResults() {
+            const container = document.getElementById('diagnostics-results');
+            if (!container) return;
+
+            if (!lastDiagnosticsResults.length) {
+                container.innerHTML = `<div class="diagnostic-item diagnostic-muted">${escapeHtml(t('ui_diagnostics_waiting'))}</div>`;
+                return;
+            }
+
+            container.innerHTML = lastDiagnosticsResults.map(item => {
+                const statusClass = item.status === 'ok'
+                    ? 'diagnostic-ok'
+                    : (item.status === 'warn' ? 'diagnostic-warn' : (item.status === 'error' ? 'diagnostic-error' : 'diagnostic-muted'));
+                return `<div class="diagnostic-item ${statusClass}"><strong>${escapeHtml(item.title)}</strong><br>${escapeHtml(item.message)}</div>`;
+            }).join('');
+        }
+
+        function getRecentWidgetStateAgeSeconds() {
+            try {
+                const state = JSON.parse(localStorage.getItem(NOW_PLAYING_WIDGET_KEY) || '{}');
+                if (!state || state.type !== 'NOW_PLAYING_STATE' || !state.updatedAt) return null;
+                return Math.max(0, Math.round((Date.now() - Number(state.updatedAt)) / 1000));
+            } catch (error) {
+                return null;
+            }
+        }
+
+        async function runDiagnostics() {
+            lastDiagnosticsResults = [
+                { title: t('ui_diag_ws'), status: canUseStreamerBotWebsocket() ? 'ok' : 'error', message: canUseStreamerBotWebsocket() ? t('ui_diag_ws_ok') : t('ui_diag_ws_fail') },
+                { title: t('ui_diag_import'), status: 'warn', message: t('ui_diag_import_checking') }
+            ];
+            renderDiagnosticsResults();
+
+            const importResult = await checkImportStatus(true);
+            const hasImport = !!(importResult && importResult.ok);
+            const componentInspection = importResult && importResult.componentInspection ? importResult.componentInspection : { issues: [], warnings: [] };
+            const hasComponentIssues = componentInspection.issues && componentInspection.issues.length > 0;
+            const hasComponentWarnings = componentInspection.warnings && componentInspection.warnings.length > 0;
+            const hasWidgetStorage = getRecentWidgetStateAgeSeconds() !== null;
+            const widgetBridgeReady = hasWidgetStorage || !!nowPlayingWidgetChannel;
+            const widgetStateAge = getRecentWidgetStateAgeSeconds();
+
+            lastDiagnosticsResults = [
+                { title: t('ui_diag_ws'), status: canUseStreamerBotWebsocket() ? 'ok' : 'error', message: canUseStreamerBotWebsocket() ? t('ui_diag_ws_ok') : t('ui_diag_ws_fail') },
+                { title: t('ui_diag_import'), status: hasImport ? 'ok' : 'error', message: hasImport ? t('ui_diag_import_ok', { version: importResult.version || REQUIRED_STREAMERBOT_IMPORT_VERSION }) : t('ui_diag_import_missing', { missing: summarizeImportProblems(importResult.missing || []) }) },
+                { title: t('ui_diag_components'), status: hasComponentIssues ? 'error' : (hasComponentWarnings ? 'warn' : 'ok'), message: hasComponentIssues ? t('ui_diag_components_missing', { count: componentInspection.issues.length, details: summarizeImportProblems(componentInspection.issues, 8) }) : (hasComponentWarnings ? summarizeImportProblems(componentInspection.warnings, 4) : t('ui_diag_components_ok')) },
+                { title: t('ui_diag_widget_bridge'), status: widgetBridgeReady ? 'ok' : 'error', message: widgetBridgeReady ? t('ui_diag_widget_bridge_ok') : t('ui_diag_widget_bridge_fail') },
+                { title: t('ui_diag_settings_sync'), status: hasImport ? 'ok' : 'error', message: hasImport ? t('ui_diag_settings_sync_ok') : t('ui_diag_settings_sync_fail') },
+                { title: t('ui_diag_widget_state'), status: widgetStateAge !== null && widgetStateAge <= 10 ? 'ok' : 'warn', message: widgetStateAge !== null && widgetStateAge <= 10 ? t('ui_diag_widget_state_ok', { seconds: widgetStateAge }) : t('ui_diag_widget_state_warn') },
+                { title: t('ui_diag_api'), status: API_KEY ? 'ok' : 'warn', message: API_KEY ? t('ui_diag_api_ok') : t('ui_diag_api_warn') }
+            ];
+            renderDiagnosticsResults();
+        }
+
+        function getActiveWidgetPublishState() {
+            if (widgetTestState) {
+                if (Date.now() < widgetTestStateUntil) {
+                    return { ...widgetTestState, updatedAt: Date.now() };
+                }
+                widgetTestState = null;
+            }
+            return getNowPlayingWidgetState();
+        }
+
+        function sendWidgetTest() {
+            widgetTestState = {
+                type: 'NOW_PLAYING_STATE',
+                hasSong: true,
+                id: 'dQw4w9WgXcQ',
+                title: t('ui_widget_test_title'),
+                author: 'TYM Song Request',
+                user: 'OBS',
+                thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
+                currentTime: 42,
+                duration: 180,
+                progress: 23,
+                isPlaying: false,
+                waveEnding: false,
+                waveEffect: '',
+                waveEffectId: 0,
+                waveHold: false,
+                isStopped: false,
+                playerState: 2,
+                updatedAt: Date.now()
+            };
+            widgetTestStateUntil = Date.now() + 8000;
+            publishNowPlayingWidgetState(getActiveWidgetPublishState(), true);
+            showToast(t('ui_widget_test_sent'), 'ok');
+
+            setTimeout(() => {
+                if (!widgetTestState || Date.now() < widgetTestStateUntil) return;
+                widgetTestState = null;
+                publishNowPlayingWidgetState(getNowPlayingWidgetState({ ignoreWidgetTestState: true }), true);
+            }, 8300);
         }
 
         function getVarsDesc(key) {
@@ -1143,6 +1757,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if (!snapshot || (!snapshot.currentSongInfo && (!Array.isArray(snapshot.playQueue) || snapshot.playQueue.length === 0))) return false;
                 currentSongInfo = normalizeSongForStorage(snapshot.currentSongInfo);
                 currentSongStopped = false;
+                resetVoteSkipVotes();
                 playQueue = Array.isArray(snapshot.playQueue) ? snapshot.playQueue.map(normalizeSongForStorage).filter(Boolean) : [];
 
                 if (isHolidayStartupSong(currentSongInfo) && !activeHolidayVariant) {
@@ -1177,11 +1792,16 @@ setInterval(monitorWidgetConnection, 1000);
 
         function saveSongRequestSettings() {
             const durationInput = document.getElementById('sr-max-duration-input');
-            const digitsOnly = durationInput.value.replace(/\D/g, '');
-            SR_MAX_DURATION_MINUTES = normalizePositiveInteger(digitsOnly, SR_MAX_DURATION_MINUTES || 15);
+            const voteSkipInput = document.getElementById('sr-voteskip-input');
+            const durationDigitsOnly = durationInput.value.replace(/\D/g, '');
+            const voteSkipDigitsOnly = voteSkipInput.value.replace(/\D/g, '');
+            SR_MAX_DURATION_MINUTES = normalizePositiveInteger(durationDigitsOnly, SR_MAX_DURATION_MINUTES || 15);
+            SR_VOTESKIP_REQUIRED = normalizePositiveInteger(voteSkipDigitsOnly, SR_VOTESKIP_REQUIRED || 5);
             durationInput.value = SR_MAX_DURATION_MINUTES;
+            voteSkipInput.value = SR_VOTESKIP_REQUIRED;
             SR_REQUIRE_MUSIC_CATEGORY = document.getElementById('sr-music-category-cb').checked;
             localStorage.setItem('ytm_sr_max_duration_minutes', SR_MAX_DURATION_MINUTES.toString());
+            localStorage.setItem('ytm_sr_voteskip_required', SR_VOTESKIP_REQUIRED.toString());
             localStorage.setItem('ytm_sr_require_music_category', SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false');
             syncSongRequestSettingsToStreamerBot();
         }
@@ -1191,6 +1811,119 @@ setInterval(monitorWidgetConnection, 1000);
             WIDGET_AUDIO_ENABLED_CONFIG = !!(input && input.checked);
             localStorage.setItem('ytm_widget_audio_enabled', WIDGET_AUDIO_ENABLED_CONFIG ? 'true' : 'false');
             updateWidgetUrlDisplay();
+        }
+
+        function getSettingsBackupPayload() {
+            const storageKeys = [
+                'ytm_lang',
+                'ytm_ws_host',
+                'ytm_ws_port',
+                'ytm_ws_pass',
+                'ytm_persist_queue',
+                QUEUE_STORAGE_KEY,
+                'ytm_sr_max_duration_minutes',
+                'ytm_sr_voteskip_required',
+                'ytm_sr_require_music_category',
+                'ytm_widget_audio_enabled',
+                'ytm_base_playlists',
+                'ytm_banned_songs',
+                'ytm_tutorial_seen'
+            ];
+            const values = {};
+            storageKeys.forEach(key => {
+                const value = localStorage.getItem(key);
+                if (value !== null) values[key] = value;
+            });
+
+            const customMessages = {};
+            Object.keys(i18n).forEach(lang => {
+                const value = localStorage.getItem('ytm_custom_msgs_' + lang);
+                if (value !== null) customMessages[lang] = value;
+            });
+
+            return {
+                type: SETTINGS_BACKUP_TYPE,
+                appVersion: CURRENT_VERSION,
+                exportedAt: new Date().toISOString(),
+                includesApiKey: false,
+                values,
+                customMessages
+            };
+        }
+
+        function exportSettings() {
+            const payload = getSettingsBackupPayload();
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const date = new Date().toISOString().slice(0, 10);
+            link.href = url;
+            link.download = 'ytm-song-request-settings-' + CURRENT_VERSION.replace(/^v/i, '') + '-' + date + '.json';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            showToast(t('ui_export_done'), 'ok');
+        }
+
+        function chooseSettingsImport() {
+            const input = document.getElementById('settings-import-input');
+            if (!input) return;
+            input.value = '';
+            input.click();
+        }
+
+        function applySettingsBackupPayload(payload) {
+            const allowedKeys = new Set([
+                'ytm_lang',
+                'ytm_ws_host',
+                'ytm_ws_port',
+                'ytm_ws_pass',
+                'ytm_persist_queue',
+                QUEUE_STORAGE_KEY,
+                'ytm_sr_max_duration_minutes',
+                'ytm_sr_voteskip_required',
+                'ytm_sr_require_music_category',
+                'ytm_widget_audio_enabled',
+                'ytm_base_playlists',
+                'ytm_banned_songs',
+                'ytm_tutorial_seen'
+            ]);
+
+            Object.keys(payload.values || {}).forEach(key => {
+                if (allowedKeys.has(key)) localStorage.setItem(key, String(payload.values[key]));
+            });
+
+            Object.keys(payload.customMessages || {}).forEach(lang => {
+                if (i18n[lang]) localStorage.setItem('ytm_custom_msgs_' + lang, String(payload.customMessages[lang]));
+            });
+        }
+
+        function importSettingsFile() {
+            const input = document.getElementById('settings-import-input');
+            const file = input && input.files ? input.files[0] : null;
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const payload = JSON.parse(String(reader.result || ''));
+                    if (!payload || payload.type !== SETTINGS_BACKUP_TYPE || typeof payload.values !== 'object') {
+                        showToast(t('ui_import_invalid'), 'error');
+                        return;
+                    }
+
+                    showConfirm(t('ui_import_confirm'), () => {
+                        applySettingsBackupPayload(payload);
+                        showToast(t('ui_import_done'), 'ok');
+                        setTimeout(() => window.location.reload(), 900);
+                    }, { okText: t('ui_import_settings') });
+                } catch (error) {
+                    showToast(t('ui_import_invalid'), 'error');
+                }
+            };
+            reader.onerror = () => showToast(t('ui_import_invalid'), 'error');
+            reader.readAsText(file);
         }
 
         function setBaseActionButtonMode(mode) {
@@ -1229,6 +1962,7 @@ setInterval(monitorWidgetConnection, 1000);
                 action: { name: 'SongRequestSettings' },
                 args: {
                     maxDurationMinutes: SR_MAX_DURATION_MINUTES.toString(),
+                    voteSkipRequired: SR_VOTESKIP_REQUIRED.toString(),
                     requireMusicCategory: SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false'
                 },
                 id: 'SongRequestSettings'
@@ -1447,7 +2181,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if (player && typeof player.getPlayerState === 'function') fetchFullPlaylistFromAPI();
                 else setBaseActionButtonMode('downloading');
             } else {
-                alert("Invalid API Key!");
+                showToast(t('ui_api_invalid'), 'error');
             }
         }
 
@@ -1510,9 +2244,16 @@ setInterval(monitorWidgetConnection, 1000);
             const copyText = document.getElementById("sb-import-code");
             copyText.select();
             copyText.setSelectionRange(0, 99999); 
-            navigator.clipboard.writeText(copyText.value).then(() => {
-                alert("Copied to clipboard!");
-            });
+            const done = () => showToast(t('ui_copied_clipboard'), 'ok');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(copyText.value).then(done).catch(() => {
+                    document.execCommand('copy');
+                    done();
+                });
+            } else {
+                document.execCommand('copy');
+                done();
+            }
         }
 
         let savedPlaylists = JSON.parse(localStorage.getItem('ytm_base_playlists')) || [];
@@ -1666,12 +2407,12 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function clearAllBans() {
-            if(confirm("Are you sure?")) {
+            showConfirm(t('ui_clear_bans_confirm'), () => {
                 bannedSongs = [];
                 localStorage.removeItem('ytm_banned_songs');
                 log("🧹 Blacklist cleared!", "warn");
                 renderBanList();
-            }
+            }, { okText: t('ui_clear_bans') });
         }
 
         function openBanList() { renderBanList(); document.getElementById('ban-modal').style.display = 'flex'; }
@@ -1889,7 +2630,14 @@ setInterval(monitorWidgetConnection, 1000);
             '</div>';
         }
 
-        function getNowPlayingWidgetState() {
+        function getNowPlayingWidgetState(options = {}) {
+            if (!options.ignoreWidgetTestState && widgetTestState) {
+                if (Date.now() < widgetTestStateUntil) {
+                    return { ...widgetTestState, updatedAt: Date.now() };
+                }
+                widgetTestState = null;
+            }
+
             if (!currentSongInfo || currentSongStopped) {
                 return { type: 'NOW_PLAYING_STATE', hasSong: false, currentTime: 0, duration: 0, progress: 0, isPlaying: false, isStopped: !!currentSongStopped, waveHold: false, updatedAt: Date.now() };
             }
@@ -1989,19 +2737,26 @@ setInterval(monitorWidgetConnection, 1000);
             publishNowPlayingWidgetStateToStreamerBot(state, forceStreamerBot);
         }
 
+        function publishNowPlayingWidgetStartupBurst() {
+            nowPlayingWidgetStartupBurstTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+            nowPlayingWidgetStartupBurstTimeouts = [0, 350, 1200, 3000].map(delay => setTimeout(() => {
+                publishNowPlayingWidgetState(getActiveWidgetPublishState(), true);
+            }, delay));
+        }
+
         function updateNowPlayingProgress() {
-            const state = getNowPlayingWidgetState();
+            const state = getNowPlayingWidgetState({ ignoreWidgetTestState: true });
             updateNowPlayingCardProgress('panel-now-playing', state);
-            publishNowPlayingWidgetState(state);
+            publishNowPlayingWidgetState(getActiveWidgetPublishState());
         }
 
         function triggerNowPlayingWaveEffect(effect, durationMs = 520) {
             nowPlayingWaveEffect = effect;
             nowPlayingWaveEffectUntil = Date.now() + durationMs;
             nowPlayingWaveEffectId = (nowPlayingWaveEffectId + 1) % 1000000;
-            const state = getNowPlayingWidgetState();
+            const state = getNowPlayingWidgetState({ ignoreWidgetTestState: true });
             updateNowPlayingCardProgress('panel-now-playing', state);
-            publishNowPlayingWidgetState(state, true);
+            publishNowPlayingWidgetState(getActiveWidgetPublishState(), true);
         }
 
         function clearNowPlayingWaveEffect() {
@@ -2011,6 +2766,7 @@ setInterval(monitorWidgetConnection, 1000);
 
         function stopCurrentSongWithWave() {
             clearTimeout(stopTransitionTimeout);
+            resetVoteSkipVotes();
             nowPlayingWaveHoldUntilStart = false;
             triggerNowPlayingWaveEffect('fade', 900);
             player.stopVideo();
@@ -2110,6 +2866,7 @@ setInterval(monitorWidgetConnection, 1000);
             initialSongLoaded = true;
             currentSongInfo = normalizeSongForStorage({ ...song, user: 'Auto', isStartup: true });
             currentSongStopped = false;
+            resetVoteSkipVotes();
             currentSongInfo.isStartup = true;
             player.cueVideoById(currentSongInfo.id);
             document.getElementById('now-playing-title').innerText = currentSongInfo.title;
@@ -2265,6 +3022,7 @@ setInterval(monitorWidgetConnection, 1000);
             stopTransitionTimeout = null;
             clearNowPlayingWaveEffect();
             if(currentSongInfo) playHistory.push(currentSongInfo);
+            resetVoteSkipVotes();
             
             if (playQueue.length > 0) {
                 currentSongInfo = playQueue.shift();
@@ -2294,6 +3052,7 @@ setInterval(monitorWidgetConnection, 1000);
                 clearNowPlayingWaveEffect();
                 document.getElementById('now-playing-title').innerText = currentSongInfo.title;
                 document.getElementById('now-playing-meta').innerText = currentSongInfo.user === "Auto" ? `Auto` : `👤 ${currentSongInfo.user}`;
+                publishNowPlayingWidgetStartupBurst();
             }
         }
 
@@ -2305,6 +3064,7 @@ setInterval(monitorWidgetConnection, 1000);
             }
 
             clearTimeout(skipTransitionTimeout);
+            resetVoteSkipVotes();
             triggerNowPlayingWaveEffect('skip', 820);
             const refillMode = playQueue.length === 0 ? 'shuffle' : basePlaybackMode;
             skipTransitionTimeout = setTimeout(() => {
@@ -2398,6 +3158,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if(currentSongInfo) playQueue.unshift(currentSongInfo);
                 currentSongInfo = playHistory.pop();
                 currentSongStopped = false;
+                resetVoteSkipVotes();
                 player.loadVideoById(currentSongInfo.id);
                 renderQueue();
             } else player.seekTo(0); 
@@ -2476,16 +3237,25 @@ setInterval(monitorWidgetConnection, 1000);
 
         function clearQueueWithConfirm() {
             if (playQueue.length === 0) return;
-            if (!confirm(t('ui_clear_queue_confirm', {count: playQueue.length}))) return;
-            playQueue = [];
-            renderQueue();
-            log("Cleared queued tracks.", "warn");
+            showConfirm(t('ui_clear_queue_confirm', {count: playQueue.length}), () => {
+                playQueue = [];
+                renderQueue();
+                log("Cleared queued tracks.", "warn");
+            }, { okText: t('ui_clear_queue') });
         }
 
         function sendChatMessage(msg) {
             if(canUseStreamerBotWebsocket()) {
                 ws.send(JSON.stringify({"request": "DoAction", "action": { "name": "ChatMessage" }, "args": { "message": msg }, "id": "MsgOut" }));
             }
+        }
+
+        function resetVoteSkipVotes() {
+            voteSkipUsers.clear();
+        }
+
+        function getVoteSkipUserKey(user) {
+            return String(user || 'Viewer').trim().toLowerCase() || 'viewer';
         }
 
         function handleGetSong(user) {
@@ -2508,6 +3278,55 @@ setInterval(monitorWidgetConnection, 1000);
                 sendChatMessage(t('msg_skip_empty', {user: user}));
             }
             skipSong(); 
+        }
+
+        function handleVoteSkip(user) {
+            const voter = user || 'Viewer';
+            const required = Math.max(1, SR_VOTESKIP_REQUIRED || 5);
+
+            if (skipTransitionTimeout) {
+                sendChatMessage(t('msg_voteskip_skipping', {user: voter}));
+                return;
+            }
+
+            if (!currentSongInfo || currentSongStopped) {
+                sendChatMessage(t('msg_voteskip_empty', {user: voter}));
+                return;
+            }
+
+            const userKey = getVoteSkipUserKey(voter);
+            if (voteSkipUsers.has(userKey)) {
+                sendChatMessage(t('msg_voteskip_duplicate', {
+                    user: voter,
+                    votes: voteSkipUsers.size,
+                    required: required,
+                    left: Math.max(0, required - voteSkipUsers.size)
+                }));
+                return;
+            }
+
+            voteSkipUsers.add(userKey);
+            const votes = voteSkipUsers.size;
+            const left = Math.max(0, required - votes);
+
+            if (votes >= required) {
+                sendChatMessage(t('msg_voteskip_passed', {
+                    user: voter,
+                    votes: votes,
+                    required: required,
+                    author: currentSongInfo.author,
+                    title: currentSongInfo.title
+                }));
+                skipSong();
+                return;
+            }
+
+            sendChatMessage(t('msg_voteskip_count', {
+                user: voter,
+                votes: votes,
+                required: required,
+                left: left
+            }));
         }
 
         function handleWrongSong(user) {
@@ -2684,6 +3503,7 @@ setInterval(monitorWidgetConnection, 1000);
             wsStatusKey = 'ui_bot_connected';
             wsStatusColor = '#00ff88';
             renderWebsocketStatus();
+            scheduleImportStatusCheck();
         }
 
         function setWebsocketDisconnected() {
@@ -2691,6 +3511,9 @@ setInterval(monitorWidgetConnection, 1000);
             wsStatusKey = 'ui_bot_disconnected';
             wsStatusColor = 'var(--red)';
             renderWebsocketStatus();
+            setImportStatus('unknown');
+            resolveImportDiagnosticsWaiters(null);
+            resolveStreamerBotRequestWaiters(null);
         }
 
         function setWebsocketAuthFailed(message = "WebSocket Authentication Failed!") {
@@ -2698,6 +3521,9 @@ setInterval(monitorWidgetConnection, 1000);
             wsStatusKey = 'ui_bot_auth_fail';
             wsStatusColor = 'var(--red)';
             renderWebsocketStatus();
+            setImportStatus('unknown');
+            resolveImportDiagnosticsWaiters(null);
+            resolveStreamerBotRequestWaiters(null);
             log(`🔴 ${message}`, "error");
         }
 
@@ -2759,6 +3585,8 @@ setInterval(monitorWidgetConnection, 1000);
                         return;
                     }
 
+                    if (resolveStreamerBotRequest(raw)) return;
+
                     if (raw.id === "Sub") return;
                     
                     if (raw.id === "auth") {
@@ -2777,7 +3605,10 @@ setInterval(monitorWidgetConnection, 1000);
                     else if (raw.type) inner = raw;
 
                     if (inner) {
-                        if (inner.type === "SONG_REQUEST") {
+                        if (inner.type === "IMPORT_DIAGNOSTICS") {
+                            handleImportDiagnosticsPayload(inner);
+                        }
+                        else if (inner.type === "SONG_REQUEST") {
                             if (!isSrEnabled) sendChatMessage(t('msg_sr_disabled', {user: inner.user}));
                             else if (bannedSongs.some(b => b.id === inner.id)) sendChatMessage(t('msg_sr_banned', {user: inner.user}));
                             else {
@@ -2790,6 +3621,7 @@ setInterval(monitorWidgetConnection, 1000);
                         else if (inner.type === "SONG_REQUEST_FORCE") addSongFromChat(inner, true); 
                         else if (inner.type === "GET_SONG") handleGetSong(inner.user);
                         else if (inner.type === "SKIP_SONG") handleSkipSong(inner.user);
+                        else if (inner.type === "VOTE_SKIP") handleVoteSkip(inner.user);
                         else if (inner.type === "WRONG_SONG") handleWrongSong(inner.user);
                         else if (inner.type === "VOLUME") handleVolume(inner);
                         
