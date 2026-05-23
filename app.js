@@ -45,6 +45,10 @@ const WIDGET_STALE_MS = 3500;
 const WIDGET_CONNECTION_MESSAGE_DELAY_MS = 15000;
 const WIDGET_AUTO_HIDE_MS = 30000;
 const WIDGET_AUDIO_SYNC_THRESHOLD = 1.6;
+const WIDGET_AUDIO_LOCK_KEY = 'ytm_widget_audio_master_lock';
+const WIDGET_AUDIO_LOCK_TTL_MS = 4500;
+const WIDGET_AUDIO_LOCK_RENEW_MS = 1200;
+const WIDGET_INSTANCE_ID = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 let lastPayload = '';
 let activeWidgetSongKey = '';
 let lastWidgetStateAt = 0;
@@ -63,6 +67,8 @@ let widgetAudioSongId = '';
 let widgetAudioLastState = null;
 let widgetAudioLastSeekAt = 0;
 let widgetAudioApiLoading = false;
+let widgetAudioHasLock = !WIDGET_AUDIO_ENABLED;
+let widgetAudioLockInterval = null;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -308,6 +314,92 @@ function loadWidgetAudioApi() {
     }
 }
 
+function readWidgetAudioLock() {
+    try {
+        const lock = JSON.parse(localStorage.getItem(WIDGET_AUDIO_LOCK_KEY) || 'null');
+        if (!lock || typeof lock !== 'object') return null;
+        return {
+            owner: String(lock.owner || ''),
+            updatedAt: Number(lock.updatedAt) || 0
+        };
+    } catch (error) {
+        return null;
+    }
+}
+
+function writeWidgetAudioLock() {
+    localStorage.setItem(WIDGET_AUDIO_LOCK_KEY, JSON.stringify({
+        owner: WIDGET_INSTANCE_ID,
+        updatedAt: Date.now()
+    }));
+}
+
+function isWidgetAudioLockExpired(lock, now = Date.now()) {
+    return !lock || !lock.owner || now - lock.updatedAt > WIDGET_AUDIO_LOCK_TTL_MS;
+}
+
+function acquireWidgetAudioLock() {
+    if (!WIDGET_AUDIO_ENABLED) return false;
+
+    const lock = readWidgetAudioLock();
+    if (lock && lock.owner !== WIDGET_INSTANCE_ID && !isWidgetAudioLockExpired(lock)) {
+        widgetAudioHasLock = false;
+        stopWidgetAudio();
+        return false;
+    }
+
+    try {
+        writeWidgetAudioLock();
+        const confirmedLock = readWidgetAudioLock();
+        widgetAudioHasLock = !!confirmedLock && confirmedLock.owner === WIDGET_INSTANCE_ID;
+    } catch (error) {
+        widgetAudioHasLock = true;
+    }
+
+    if (!widgetAudioHasLock) stopWidgetAudio();
+    return widgetAudioHasLock;
+}
+
+function renewWidgetAudioLock() {
+    if (!WIDGET_AUDIO_ENABLED) return;
+
+    const lock = readWidgetAudioLock();
+    if (lock && lock.owner !== WIDGET_INSTANCE_ID && !isWidgetAudioLockExpired(lock)) {
+        widgetAudioHasLock = false;
+        stopWidgetAudio();
+        return;
+    }
+
+    acquireWidgetAudioLock();
+}
+
+function releaseWidgetAudioLock() {
+    if (!WIDGET_AUDIO_ENABLED) return;
+    try {
+        const lock = readWidgetAudioLock();
+        if (lock && lock.owner === WIDGET_INSTANCE_ID) {
+            localStorage.removeItem(WIDGET_AUDIO_LOCK_KEY);
+        }
+    } catch (error) {}
+}
+
+function startWidgetAudioLockHeartbeat() {
+    if (!WIDGET_AUDIO_ENABLED || widgetAudioLockInterval) return;
+    acquireWidgetAudioLock();
+    widgetAudioLockInterval = setInterval(renewWidgetAudioLock, WIDGET_AUDIO_LOCK_RENEW_MS);
+    window.addEventListener('beforeunload', releaseWidgetAudioLock);
+    window.addEventListener('pagehide', releaseWidgetAudioLock);
+}
+
+function handleWidgetAudioLockChange() {
+    if (!WIDGET_AUDIO_ENABLED) return;
+    const lock = readWidgetAudioLock();
+    if (lock && lock.owner !== WIDGET_INSTANCE_ID && !isWidgetAudioLockExpired(lock)) {
+        widgetAudioHasLock = false;
+        stopWidgetAudio();
+    }
+}
+
 function stopWidgetAudio() {
     widgetAudioSongId = '';
     if (!widgetAudioPlayer || !widgetAudioReady) return;
@@ -317,6 +409,8 @@ function stopWidgetAudio() {
 function syncWidgetAudio(state, force = false) {
     if (!WIDGET_AUDIO_ENABLED) return;
     widgetAudioLastState = state;
+    startWidgetAudioLockHeartbeat();
+    if (!widgetAudioHasLock && !acquireWidgetAudioLock()) return;
 
     if (!state || !state.hasSong || state.isStopped) {
         stopWidgetAudio();
@@ -730,6 +824,7 @@ try {
 
 window.addEventListener('storage', event => {
     if (event.key === STORAGE_KEY) consumePayload(event.newValue, 'storage-event');
+    if (event.key === WIDGET_AUDIO_LOCK_KEY) handleWidgetAudioLockChange();
 });
 
 function monitorWidgetConnection() {
@@ -748,11 +843,54 @@ setInterval(monitorWidgetConnection, 1000);
         // =========================================================================
         // PROJECT VERSION AND GITHUB DATA
         // =========================================================================
-        const CURRENT_VERSION = "v1.2.2";
+        const CURRENT_VERSION = "v1.2.3";
         const GITHUB_REPO = "xHackMe/ytm-song-request-streamerbot";
+        const REQUIRED_STREAMERBOT_IMPORT_VERSION = "1.2.3-I3";
+        const STREAMERBOT_DIAGNOSTICS_ACTION = "YtmImportDiagnostics";
+        const SETTINGS_BACKUP_TYPE = "YTM_SONG_REQUEST_SETTINGS_BACKUP";
+        const REQUIRED_IMPORT_FEATURES = [
+            { key: 'IMPORT_DIAGNOSTICS', label: 'YtmImportDiagnostics' },
+            { key: 'CHAT_MESSAGE', label: 'ChatMessage' },
+            { key: 'SONG_REQUEST_SETTINGS', label: 'SongRequestSettings' },
+            { key: 'NOW_PLAYING_WIDGET_STATE', label: 'NowPlayingWidgetState' },
+            { key: 'VOTE_SKIP', label: 'SongVoteSkip / !voteskip' }
+        ];
+        const REQUIRED_IMPORT_COMPONENTS = {
+            actions: [
+                { id: '94d7e904-65a5-4bc9-b740-5db4b15fb384', name: 'SongRequest' },
+                { id: '20ca3b4c-2f87-4c87-8fe0-1a45d03fabda', name: 'SongSkip' },
+                { id: '1dca93a1-93f4-4ccc-968a-ac0d51a36b48', name: 'SongName' },
+                { id: '31afbb0e-1bd6-401d-a688-c74f4638a327', name: 'ChatMessage' },
+                { id: '5dbca670-b09f-455c-be38-45efc897449e', name: 'SongWrong' },
+                { id: '0ab19324-7816-4a2f-85b6-4485bb7559c2', name: 'SongVolume' },
+                { id: '93c93f58-a2c0-44aa-9fcc-21eca6bd3639', name: 'SongRequestForce' },
+                { id: '2810ecba-ba84-4a87-a876-db4ee21e7a67', name: 'SongPlay' },
+                { id: '0bd4f3b1-a85e-47a5-b555-90047baf9a31', name: 'SongPause' },
+                { id: 'dca0e174-4cb8-45aa-b319-254c7969bbf3', name: 'SongStop' },
+                { id: '7b511689-cf6f-499e-a06e-980978bb4376', name: 'SongRequestSettings' },
+                { id: '481f0f0a-dfae-4152-ad60-90ad1750b981', name: 'NowPlayingWidgetState' },
+                { id: 'f878f3d8-096f-4e9a-b9f0-024c1458e8c1', name: 'SongVoteSkip' },
+                { name: 'YtmImportDiagnostics' }
+            ],
+            commands: [
+                { id: '16422aad-ca07-43c6-b527-dc8f0a2f7c13', name: '!sr', aliases: ['!sr'], action: 'SongRequest' },
+                { id: 'a306e7a2-e751-4f2d-8da9-1cb7190c937a', name: '!srForce', aliases: ['!srForce', '!srforce'], action: 'SongRequestForce' },
+                { id: 'cfe7edd2-1ac5-49bf-bc06-1f7f96848937', name: '!song', aliases: ['!song', '!songname'], action: 'SongName' },
+                { id: 'f0c06e4b-adf2-4224-9187-7d67a8a83451', name: '!skip', aliases: ['!skip', '!skipsong'], action: 'SongSkip' },
+                { id: '5c6af3b5-f713-48ed-83bf-23c948ef9c37', name: '!voteskip', aliases: ['!voteskip', '!skipvote'], action: 'SongVoteSkip' },
+                { id: 'c20bddc3-36d8-4a9f-b0e1-a507233b0c40', name: '!wrongsong', aliases: ['!wrongsong', '!songwrong'], action: 'SongWrong' },
+                { id: '2c49515d-e91f-4078-a7fb-f24268ea4abb', name: '!volume', aliases: ['!volume', '!vol'], action: 'SongVolume' },
+                { id: '20eb9753-9b5e-4e69-b81e-c606903bdc35', name: '!play', aliases: ['!play'], action: 'SongPlay' },
+                { id: 'e520cf7f-b787-4ea8-b9c2-9af312730ed5', name: '!pause', aliases: ['!pause'], action: 'SongPause' },
+                { id: '33a78c74-c9bd-4ae3-b7ca-2e269967d824', name: '!stop', aliases: ['!stop'], action: 'SongStop' }
+            ]
+        };
         
         document.title = `YTM Song Request ${CURRENT_VERSION}`;
         document.getElementById('app-version-display').innerText = CURRENT_VERSION;
+        if (document.getElementById('import-version-display')) {
+            document.getElementById('import-version-display').innerText = `Import v${REQUIRED_STREAMERBOT_IMPORT_VERSION}`;
+        }
 
         function isTestVersion(version) {
             return /t$/i.test(String(version || '').trim());
@@ -871,8 +1009,11 @@ setInterval(monitorWidgetConnection, 1000);
             return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
         }
 
+        const CUSTOM_MSGS_DISABLED_PREFIX = 'ytm_custom_msgs_disabled_';
+
         let currentLang = localStorage.getItem('ytm_lang') || 'en';
         let customMsgs = JSON.parse(localStorage.getItem('ytm_custom_msgs_' + currentLang)) || {};
+        let disabledCustomMsgs = JSON.parse(localStorage.getItem(CUSTOM_MSGS_DISABLED_PREFIX + currentLang)) || {};
 
         function dateOnly(date) {
             return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
@@ -930,6 +1071,9 @@ setInterval(monitorWidgetConnection, 1000);
             let dict = i18n[currentLang] || i18n['en'];
             
             let text = dict[key] || i18n['en'][key] || key;
+            if (key.startsWith('msg_') && disabledCustomMsgs[key]) {
+                return '';
+            }
             if (key.startsWith('msg_') && customMsgs[key]) {
                 text = customMsgs[key];
             }
@@ -944,6 +1088,7 @@ setInterval(monitorWidgetConnection, 1000);
             currentLang = langCode;
             localStorage.setItem('ytm_lang', langCode);
             customMsgs = JSON.parse(localStorage.getItem('ytm_custom_msgs_' + currentLang)) || {};
+            disabledCustomMsgs = JSON.parse(localStorage.getItem(CUSTOM_MSGS_DISABLED_PREFIX + currentLang)) || {};
             
             applyTranslations();
             log(`🌐 Language changed to: ${langCode.toUpperCase()}`);
@@ -960,6 +1105,13 @@ setInterval(monitorWidgetConnection, 1000);
                 clearTimeout(wsReconnectTimeout);
                 connectWebsocket();
             }
+        }
+
+        function renderFooterVersions() {
+            const appVersionEl = document.getElementById('app-version-display');
+            const importVersionEl = document.getElementById('import-version-display');
+            if (appVersionEl) appVersionEl.innerText = CURRENT_VERSION;
+            if (importVersionEl) importVersionEl.innerText = `${t('ui_import_version_short')} v${REQUIRED_STREAMERBOT_IMPORT_VERSION}`;
         }
 
         function applyTranslations() {
@@ -987,9 +1139,12 @@ setInterval(monitorWidgetConnection, 1000);
             updateApiStatusUI(document.getElementById('api-status-icon').getAttribute('data-last-status') || 'init');
             
             renderBaseActionButtons();
+            renderFooterVersions();
             
             updateTutLink(); 
             renderWebsocketStatus();
+            renderImportStatusBanner();
+            renderDiagnosticsResults();
         }
 
         // =========================================================================
@@ -1002,11 +1157,16 @@ setInterval(monitorWidgetConnection, 1000);
         let wsStatusKey = 'ui_bot_connecting';
         let wsStatusColor = '#ffaa00';
         const QUEUE_STORAGE_KEY = 'ytm_persisted_queue';
+        const FAVORITE_SONGS_STORAGE_KEY = 'ytm_favorite_songs';
         let SHOULD_PERSIST_QUEUE = localStorage.getItem('ytm_persist_queue') === 'true';
         let queuePersistenceReady = false;
         let SR_MAX_DURATION_MINUTES = normalizePositiveInteger(localStorage.getItem('ytm_sr_max_duration_minutes'), 15);
         let SR_REQUIRE_MUSIC_CATEGORY = localStorage.getItem('ytm_sr_require_music_category') !== 'false';
         let SR_VOTESKIP_REQUIRED = normalizePositiveInteger(localStorage.getItem('ytm_sr_voteskip_required'), 5);
+        let SR_USER_QUEUE_LIMIT = normalizePositiveInteger(localStorage.getItem('ytm_sr_user_queue_limit'), 25);
+        let SR_GLOBAL_QUEUE_LIMIT = normalizePositiveInteger(localStorage.getItem('ytm_sr_global_queue_limit'), 100);
+        let SR_USER_QUEUE_LIMIT_ENABLED = localStorage.getItem('ytm_sr_user_queue_limit_enabled') === 'true';
+        let SR_GLOBAL_QUEUE_LIMIT_ENABLED = localStorage.getItem('ytm_sr_global_queue_limit_enabled') === 'true';
         let voteSkipUsers = new Set();
         let initialSongLoaded = false;
         let activeHolidayVariant = null;
@@ -1037,6 +1197,15 @@ setInterval(monitorWidgetConnection, 1000);
         let WIDGET_AUDIO_ENABLED_CONFIG = localStorage.getItem('ytm_widget_audio_enabled') === 'true';
         let widgetUrlBaseline = '';
         let widgetUrlWarningEnabled = false;
+        let widgetTestState = null;
+        let widgetTestStateUntil = 0;
+        let importStatusState = 'unknown';
+        let importStatusMissingItems = [];
+        let importStatusVersion = '';
+        let importDiagnosticsWaiters = [];
+        let streamerBotRequestWaiters = new Map();
+        let importStatusCheckTimeout = null;
+        let lastDiagnosticsResults = [];
         try {
             if ('BroadcastChannel' in window) nowPlayingWidgetChannel = new BroadcastChannel(NOW_PLAYING_WIDGET_CHANNEL);
         } catch (error) {
@@ -1057,7 +1226,10 @@ setInterval(monitorWidgetConnection, 1000);
         let skipTransitionTimeout = null;
         let stopTransitionTimeout = null;
         let titleCache = {};    
+        let favoriteSongs = loadFavoriteSongs();
+        hydrateFavoriteTitleCache();
         let dragSourceIndex = null;
+        let favoriteDragSourceIndex = null;
         let playlistDragSourceIndex = null;
         let isSrEnabled = false; 
         let basePlaybackMode = 'ordered';
@@ -1070,10 +1242,12 @@ setInterval(monitorWidgetConnection, 1000);
                 openChangelog, openTutorial, closeSettings, switchSettingsTab,
                 saveWsConfig, toggleApiVisibility, saveApiKey, closeChangelog,
                 clearAllBans, closeBanList, closePlaylistManager, addBasePlaylist,
-                closeTutorial, copySbCode, copyWidgetUrl, clearQueueWithConfirm
+                closeTutorial, copySbCode, copyWidgetUrl, clearQueueWithConfirm,
+                runDiagnostics, checkImportStatus, exportSettings, chooseSettingsImport,
+                sendWidgetTest
             };
 
-            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings, handleWidgetAudioToggle };
+            const changeHandlers = { toggleSR, handleQueuePersistenceToggle, saveSongRequestSettings, handleWidgetAudioToggle, importSettingsFile };
             const inputHandlers = { renderBaseList, updateTutLink, saveSongRequestSettings, updateWidgetUrlDisplay };
 
             document.querySelectorAll('[data-action]').forEach(el => {
@@ -1108,6 +1282,10 @@ setInterval(monitorWidgetConnection, 1000);
         const queuePersistInput = document.getElementById('queue-persist-cb');
         const srMaxDurationInput = document.getElementById('sr-max-duration-input');
         const srVoteSkipInput = document.getElementById('sr-voteskip-input');
+        const srUserLimitInput = document.getElementById('sr-user-limit-input');
+        const srGlobalLimitInput = document.getElementById('sr-global-limit-input');
+        const srUserLimitEnabledInput = document.getElementById('sr-user-limit-enabled-cb');
+        const srGlobalLimitEnabledInput = document.getElementById('sr-global-limit-enabled-cb');
         const srMusicCategoryInput = document.getElementById('sr-music-category-cb');
         const widgetAudioInput = document.getElementById('widget-audio-cb');
 
@@ -1118,8 +1296,13 @@ setInterval(monitorWidgetConnection, 1000);
         if (queuePersistInput) queuePersistInput.checked = SHOULD_PERSIST_QUEUE;
         if (srMaxDurationInput) srMaxDurationInput.value = SR_MAX_DURATION_MINUTES;
         if (srVoteSkipInput) srVoteSkipInput.value = SR_VOTESKIP_REQUIRED;
+        if (srUserLimitInput) srUserLimitInput.value = SR_USER_QUEUE_LIMIT;
+        if (srGlobalLimitInput) srGlobalLimitInput.value = SR_GLOBAL_QUEUE_LIMIT;
+        if (srUserLimitEnabledInput) srUserLimitEnabledInput.checked = SR_USER_QUEUE_LIMIT_ENABLED;
+        if (srGlobalLimitEnabledInput) srGlobalLimitEnabledInput.checked = SR_GLOBAL_QUEUE_LIMIT_ENABLED;
         if (srMusicCategoryInput) srMusicCategoryInput.checked = SR_REQUIRE_MUSIC_CATEGORY;
         if (widgetAudioInput) widgetAudioInput.checked = WIDGET_AUDIO_ENABLED_CONFIG;
+        updateSongRequestLimitInputStates();
 
         applyHolidayVariant();
         window.addEventListener('focus', refreshHolidayVariant);
@@ -1150,6 +1333,486 @@ setInterval(monitorWidgetConnection, 1000);
             document.getElementById(`tab-content-${tabName}`).classList.add('active');
         }
 
+        function showToast(message, type = 'normal') {
+            const rootEl = document.getElementById('toast-root');
+            if (!rootEl) return;
+            const toast = document.createElement('div');
+            toast.className = 'toast' + (type === 'error' ? ' is-error' : (type === 'ok' ? ' is-ok' : (type === 'warn' ? ' is-warn' : '')));
+            toast.textContent = message;
+            rootEl.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 180);
+            }, 3600);
+        }
+
+        function showConfirm(message, onConfirm, options = {}) {
+            const modal = document.getElementById('confirm-modal');
+            const titleEl = document.getElementById('confirm-title');
+            const messageEl = document.getElementById('confirm-message');
+            const okBtn = document.getElementById('confirm-ok-btn');
+            const cancelBtn = document.getElementById('confirm-cancel-btn');
+            if (!modal || !messageEl || !okBtn || !cancelBtn) return;
+
+            titleEl.innerText = options.title || t('ui_confirm_title');
+            messageEl.innerText = message;
+            okBtn.innerText = options.okText || t('ui_confirm_ok');
+            cancelBtn.innerText = options.cancelText || t('ui_confirm_cancel');
+
+            const cleanup = () => {
+                modal.style.display = 'none';
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+            };
+
+            okBtn.onclick = () => {
+                cleanup();
+                if (typeof onConfirm === 'function') onConfirm();
+            };
+            cancelBtn.onclick = cleanup;
+            modal.style.display = 'flex';
+        }
+
+        function normalizeDiagnosticId(value) {
+            return String(value || '').trim().toLowerCase();
+        }
+
+        function isComponentEnabled(component) {
+            if (!component || typeof component !== 'object') return false;
+            if (component.enabled === false || component.isEnabled === false || component.active === false) return false;
+            if (component.disabled === true || component.isDisabled === true) return false;
+            const textValue = String(component.enabled ?? component.isEnabled ?? component.active ?? '').toLowerCase();
+            if (textValue === 'false' || textValue === 'disabled' || textValue === '0') return false;
+            return true;
+        }
+
+        function componentName(component) {
+            return component && (component.name || component.Name || component.title || component.id || component.Id || '');
+        }
+
+        function componentId(component) {
+            return component && (component.id || component.Id || component.actionId || component.commandId || component.queueId || '');
+        }
+
+        function findComponent(list, required) {
+            if (!Array.isArray(list)) return null;
+            const requiredName = normalizeDiagnosticId(required.name);
+            const requiredId = normalizeDiagnosticId(required.id);
+            return list.find(item => {
+                const itemName = normalizeDiagnosticId(componentName(item));
+                const itemId = normalizeDiagnosticId(componentId(item));
+                return (requiredId && itemId === requiredId) || (requiredName && itemName === requiredName);
+            }) || null;
+        }
+
+        function collectArraysByKey(value, keys, found = [], visited = new Set()) {
+            if (!value || typeof value !== 'object' || visited.has(value)) return found;
+            visited.add(value);
+
+            Object.keys(value).forEach(key => {
+                const child = value[key];
+                if (keys.includes(key.toLowerCase()) && Array.isArray(child)) found.push(child);
+                else if (child && typeof child === 'object') collectArraysByKey(child, keys, found, visited);
+            });
+
+            return found;
+        }
+
+        function extractComponentList(response, keys) {
+            if (!response || typeof response !== 'object') return null;
+            const arrays = collectArraysByKey(response, keys.map(key => key.toLowerCase()));
+            if (!arrays.length) return null;
+            return arrays.find(array => array.length > 0) || arrays[0];
+        }
+
+        function getCommandAliases(command) {
+            const raw = [
+                command.command,
+                command.commands,
+                command.value,
+                command.name
+            ].filter(Boolean).join('\n');
+            return raw
+                .split(/[\r\n,]+/)
+                .map(alias => normalizeDiagnosticId(alias))
+                .filter(Boolean);
+        }
+
+        function getActionTriggerCommandIds(action) {
+            const triggers = Array.isArray(action && action.triggers) ? action.triggers : [];
+            return triggers.map(trigger => normalizeDiagnosticId(
+                typeof trigger === 'string'
+                    ? trigger
+                    : (trigger.commandId || trigger.command || trigger.id || trigger.Id)
+            )).filter(Boolean);
+        }
+
+        function summarizeImportProblems(items, limit = 6) {
+            if (!Array.isArray(items) || items.length === 0) return '';
+            const visible = items.slice(0, limit);
+            const extra = items.length - visible.length;
+            return visible.join(', ') + (extra > 0 ? ', ' + t('ui_import_problem_more', { count: extra }) : '');
+        }
+
+        function resolveStreamerBotRequest(raw) {
+            if (!raw || !raw.id || !streamerBotRequestWaiters.has(raw.id)) return false;
+            const waiter = streamerBotRequestWaiters.get(raw.id);
+            streamerBotRequestWaiters.delete(raw.id);
+            clearTimeout(waiter.timeoutId);
+            waiter.resolve(raw);
+            return true;
+        }
+
+        function requestStreamerBotApi(requestName, extra = {}, timeoutMs = 1800) {
+            if (!canUseStreamerBotWebsocket()) return Promise.resolve(null);
+            const id = requestName + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+            return new Promise(resolve => {
+                const timeoutId = setTimeout(() => {
+                    streamerBotRequestWaiters.delete(id);
+                    resolve(null);
+                }, timeoutMs);
+
+                streamerBotRequestWaiters.set(id, { resolve, timeoutId });
+
+                try {
+                    ws.send(JSON.stringify({ request: requestName, id, ...extra }));
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    streamerBotRequestWaiters.delete(id);
+                    resolve(null);
+                }
+            });
+        }
+
+        async function inspectStreamerBotImportComponents() {
+            if (!canUseStreamerBotWebsocket()) {
+                return { issues: [], warnings: [t('ui_diag_ws_fail')], checked: { actions: false, commands: false } };
+            }
+
+            const [actionsResponse, commandsResponse] = await Promise.all([
+                requestStreamerBotApi('GetActions'),
+                requestStreamerBotApi('GetCommands')
+            ]);
+
+            const actions = extractComponentList(actionsResponse, ['actions']);
+            const commands = extractComponentList(commandsResponse, ['commands']);
+            const issues = [];
+            const warnings = [];
+
+            if (!actions) {
+                warnings.push(t('ui_import_live_actions_unavailable'));
+            } else {
+                REQUIRED_IMPORT_COMPONENTS.actions.forEach(required => {
+                    const action = findComponent(actions, required);
+                    if (!action) {
+                        issues.push(t('ui_import_problem_missing', { type: t('ui_import_component_action'), name: required.name }));
+                        return;
+                    }
+                    if (!isComponentEnabled(action)) issues.push(t('ui_import_problem_disabled', { type: t('ui_import_component_action'), name: required.name }));
+                });
+            }
+
+            if (!commands) {
+                warnings.push(t('ui_import_live_commands_unavailable'));
+            } else {
+                REQUIRED_IMPORT_COMPONENTS.commands.forEach(required => {
+                    const command = findComponent(commands, required);
+                    if (!command) {
+                        issues.push(t('ui_import_problem_missing', { type: t('ui_import_component_command'), name: required.name }));
+                        return;
+                    }
+                    if (!isComponentEnabled(command)) issues.push(t('ui_import_problem_disabled', { type: t('ui_import_component_command'), name: required.name }));
+
+                    const aliases = getCommandAliases(command);
+                    required.aliases.forEach(alias => {
+                        if (!aliases.includes(normalizeDiagnosticId(alias))) {
+                            issues.push(t('ui_import_problem_command_alias', { command: required.name, alias }));
+                        }
+                    });
+
+                    if (actions) {
+                        const action = findComponent(actions, { name: required.action });
+                        const triggerIds = getActionTriggerCommandIds(action);
+                        const commandId = normalizeDiagnosticId(componentId(command));
+                        if (action && triggerIds.length > 0 && commandId && !triggerIds.includes(commandId)) {
+                            issues.push(t('ui_import_problem_command_link', { command: required.name, action: required.action }));
+                        }
+                    }
+                });
+            }
+
+            return {
+                issues,
+                warnings,
+                checked: {
+                    actions: !!actions,
+                    commands: !!commands
+                }
+            };
+        }
+
+        function getImportValidationResult(payload, componentInspection = null) {
+            const version = String((payload && (payload.version || payload.importVersion)) || '').trim();
+            const features = new Set(
+                Array.isArray(payload && payload.features)
+                    ? payload.features.map(feature => String(feature).trim()).filter(Boolean)
+                    : []
+            );
+
+            const missing = [];
+            if (version !== REQUIRED_STREAMERBOT_IMPORT_VERSION) {
+                missing.push(t('ui_import_missing_version', {
+                    version: REQUIRED_STREAMERBOT_IMPORT_VERSION,
+                    current: version || '?'
+                }));
+            }
+
+            REQUIRED_IMPORT_FEATURES.forEach(feature => {
+                if (!features.has(feature.key)) missing.push(feature.label);
+            });
+
+            if (componentInspection && Array.isArray(componentInspection.issues)) {
+                missing.push(...componentInspection.issues);
+            }
+
+            return {
+                ok: missing.length === 0,
+                version,
+                missing,
+                warnings: componentInspection && Array.isArray(componentInspection.warnings) ? componentInspection.warnings : [],
+                componentInspection
+            };
+        }
+
+        function renderImportStatusBanner() {
+            const banner = document.getElementById('import-status-banner');
+            if (!banner) return;
+
+            let message = '';
+            let toneClass = '';
+
+            if (importStatusState === 'checking') {
+                message = t('ui_import_status_checking');
+                toneClass = 'is-warn';
+            } else if (importStatusState === 'missing') {
+                const missing = importStatusMissingItems.length ? summarizeImportProblems(importStatusMissingItems) : t('ui_import_required');
+                message = t('ui_import_status_missing', { missing });
+                toneClass = 'is-error';
+            }
+
+            banner.className = 'import-status-banner' + (toneClass ? ' ' + toneClass : '') + (message ? '' : ' is-hidden');
+            banner.textContent = '';
+
+            if (!message) return;
+
+            const messageEl = document.createElement('span');
+            messageEl.className = 'import-status-text';
+            messageEl.innerText = message;
+            banner.appendChild(messageEl);
+
+            if (importStatusState === 'missing') {
+                const helpBtn = document.createElement('button');
+                helpBtn.type = 'button';
+                helpBtn.className = 'btn-help import-help-btn';
+                helpBtn.innerText = t('ui_help_btn');
+                helpBtn.addEventListener('click', openTutorial);
+                banner.appendChild(helpBtn);
+            }
+        }
+
+        function setImportStatus(state, missingItems = [], version = '') {
+            importStatusState = state;
+            importStatusMissingItems = missingItems;
+            importStatusVersion = version;
+            renderImportStatusBanner();
+        }
+
+        function resolveImportDiagnosticsWaiters(payload) {
+            const waiters = importDiagnosticsWaiters.splice(0);
+            waiters.forEach(waiter => {
+                clearTimeout(waiter.timeoutId);
+                waiter.resolve(payload);
+            });
+        }
+
+        function resolveStreamerBotRequestWaiters(payload) {
+            streamerBotRequestWaiters.forEach(waiter => {
+                clearTimeout(waiter.timeoutId);
+                waiter.resolve(payload);
+            });
+            streamerBotRequestWaiters.clear();
+        }
+
+        function handleImportDiagnosticsPayload(payload) {
+            const result = getImportValidationResult(payload);
+            setImportStatus(result.ok ? 'ok' : 'missing', result.missing, result.version);
+            resolveImportDiagnosticsWaiters(payload);
+            return result;
+        }
+
+        function requestImportDiagnostics(timeoutMs = 2500) {
+            if (!canUseStreamerBotWebsocket()) return Promise.resolve(null);
+
+            return new Promise(resolve => {
+                const waiter = {
+                    resolve,
+                    timeoutId: null
+                };
+
+                waiter.timeoutId = setTimeout(() => {
+                    importDiagnosticsWaiters = importDiagnosticsWaiters.filter(item => item !== waiter);
+                    resolve(null);
+                }, timeoutMs);
+
+                importDiagnosticsWaiters.push(waiter);
+
+                try {
+                    ws.send(JSON.stringify({
+                        request: 'DoAction',
+                        action: { name: STREAMERBOT_DIAGNOSTICS_ACTION },
+                        args: { expectedVersion: REQUIRED_STREAMERBOT_IMPORT_VERSION },
+                        id: 'ImportDiagnostics'
+                    }));
+                } catch (error) {
+                    clearTimeout(waiter.timeoutId);
+                    importDiagnosticsWaiters = importDiagnosticsWaiters.filter(item => item !== waiter);
+                    resolve(null);
+                }
+            });
+        }
+
+        async function checkImportStatus(silent = false) {
+            if (!canUseStreamerBotWebsocket()) {
+                setImportStatus('unknown');
+                if (!silent) showToast(t('ui_diag_ws_fail'), 'error');
+                return { ok: false, version: '', missing: [t('ui_diag_ws')] };
+            }
+
+            setImportStatus('checking');
+            const payload = await requestImportDiagnostics();
+            if (!payload) {
+                const missing = [
+                    t('ui_import_missing_version', { version: REQUIRED_STREAMERBOT_IMPORT_VERSION, current: '?' }),
+                    'YtmImportDiagnostics'
+                ];
+                setImportStatus('missing', missing);
+                if (!silent) showToast(t('ui_import_required'), 'error');
+                return { ok: false, version: '', missing };
+            }
+
+            const componentInspection = await inspectStreamerBotImportComponents();
+            const result = getImportValidationResult(payload, componentInspection);
+            setImportStatus(result.ok ? 'ok' : 'missing', result.missing, result.version);
+            if (!silent) showToast(result.ok ? t('ui_import_status_ok') : t('ui_import_required'), result.ok ? 'ok' : 'error');
+            return result;
+        }
+
+        function scheduleImportStatusCheck() {
+            clearTimeout(importStatusCheckTimeout);
+            importStatusCheckTimeout = setTimeout(() => {
+                checkImportStatus(true);
+            }, 900);
+        }
+
+        function renderDiagnosticsResults() {
+            const container = document.getElementById('diagnostics-results');
+            if (!container) return;
+
+            if (!lastDiagnosticsResults.length) {
+                container.innerHTML = `<div class="diagnostic-item diagnostic-muted">${escapeHtml(t('ui_diagnostics_waiting'))}</div>`;
+                return;
+            }
+
+            container.innerHTML = lastDiagnosticsResults.map(item => {
+                const statusClass = item.status === 'ok'
+                    ? 'diagnostic-ok'
+                    : (item.status === 'warn' ? 'diagnostic-warn' : (item.status === 'error' ? 'diagnostic-error' : 'diagnostic-muted'));
+                return `<div class="diagnostic-item ${statusClass}"><strong>${escapeHtml(item.title)}</strong><br>${escapeHtml(item.message)}</div>`;
+            }).join('');
+        }
+
+        function getRecentWidgetStateAgeSeconds() {
+            try {
+                const state = JSON.parse(localStorage.getItem(NOW_PLAYING_WIDGET_KEY) || '{}');
+                if (!state || state.type !== 'NOW_PLAYING_STATE' || !state.updatedAt) return null;
+                return Math.max(0, Math.round((Date.now() - Number(state.updatedAt)) / 1000));
+            } catch (error) {
+                return null;
+            }
+        }
+
+        async function runDiagnostics() {
+            lastDiagnosticsResults = [
+                { title: t('ui_diag_ws'), status: canUseStreamerBotWebsocket() ? 'ok' : 'error', message: canUseStreamerBotWebsocket() ? t('ui_diag_ws_ok') : t('ui_diag_ws_fail') },
+                { title: t('ui_diag_import'), status: 'warn', message: t('ui_diag_import_checking') }
+            ];
+            renderDiagnosticsResults();
+
+            const importResult = await checkImportStatus(true);
+            const hasImport = !!(importResult && importResult.ok);
+            const componentInspection = importResult && importResult.componentInspection ? importResult.componentInspection : { issues: [], warnings: [] };
+            const hasComponentIssues = componentInspection.issues && componentInspection.issues.length > 0;
+            const hasComponentWarnings = componentInspection.warnings && componentInspection.warnings.length > 0;
+            const hasWidgetStorage = getRecentWidgetStateAgeSeconds() !== null;
+            const widgetBridgeReady = hasWidgetStorage || !!nowPlayingWidgetChannel;
+            const widgetStateAge = getRecentWidgetStateAgeSeconds();
+
+            lastDiagnosticsResults = [
+                { title: t('ui_diag_ws'), status: canUseStreamerBotWebsocket() ? 'ok' : 'error', message: canUseStreamerBotWebsocket() ? t('ui_diag_ws_ok') : t('ui_diag_ws_fail') },
+                { title: t('ui_diag_import'), status: hasImport ? 'ok' : 'error', message: hasImport ? t('ui_diag_import_ok', { version: importResult.version || REQUIRED_STREAMERBOT_IMPORT_VERSION }) : t('ui_diag_import_missing', { missing: summarizeImportProblems(importResult.missing || []) }) },
+                { title: t('ui_diag_components'), status: hasComponentIssues ? 'error' : (hasComponentWarnings ? 'warn' : 'ok'), message: hasComponentIssues ? t('ui_diag_components_missing', { count: componentInspection.issues.length, details: summarizeImportProblems(componentInspection.issues, 8) }) : (hasComponentWarnings ? summarizeImportProblems(componentInspection.warnings, 4) : t('ui_diag_components_ok')) },
+                { title: t('ui_diag_widget_bridge'), status: widgetBridgeReady ? 'ok' : 'error', message: widgetBridgeReady ? t('ui_diag_widget_bridge_ok') : t('ui_diag_widget_bridge_fail') },
+                { title: t('ui_diag_settings_sync'), status: hasImport ? 'ok' : 'error', message: hasImport ? t('ui_diag_settings_sync_ok') : t('ui_diag_settings_sync_fail') },
+                { title: t('ui_diag_widget_state'), status: widgetStateAge !== null && widgetStateAge <= 10 ? 'ok' : 'warn', message: widgetStateAge !== null && widgetStateAge <= 10 ? t('ui_diag_widget_state_ok', { seconds: widgetStateAge }) : t('ui_diag_widget_state_warn') },
+                { title: t('ui_diag_api'), status: API_KEY ? 'ok' : 'warn', message: API_KEY ? t('ui_diag_api_ok') : t('ui_diag_api_warn') }
+            ];
+            renderDiagnosticsResults();
+        }
+
+        function getActiveWidgetPublishState() {
+            if (widgetTestState) {
+                if (Date.now() < widgetTestStateUntil) {
+                    return { ...widgetTestState, updatedAt: Date.now() };
+                }
+                widgetTestState = null;
+            }
+            return getNowPlayingWidgetState();
+        }
+
+        function sendWidgetTest() {
+            widgetTestState = {
+                type: 'NOW_PLAYING_STATE',
+                hasSong: true,
+                id: 'dQw4w9WgXcQ',
+                title: t('ui_widget_test_title'),
+                author: 'TYM Song Request',
+                user: 'OBS',
+                thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
+                currentTime: 42,
+                duration: 180,
+                progress: 23,
+                isPlaying: false,
+                waveEnding: false,
+                waveEffect: '',
+                waveEffectId: 0,
+                waveHold: false,
+                isStopped: false,
+                playerState: 2,
+                updatedAt: Date.now()
+            };
+            widgetTestStateUntil = Date.now() + 8000;
+            publishNowPlayingWidgetState(getActiveWidgetPublishState(), true);
+            showToast(t('ui_widget_test_sent'), 'ok');
+
+            setTimeout(() => {
+                if (!widgetTestState || Date.now() < widgetTestStateUntil) return;
+                widgetTestState = null;
+                publishNowPlayingWidgetState(getNowPlayingWidgetState({ ignoreWidgetTestState: true }), true);
+            }, 8300);
+        }
+
         function getVarsDesc(key) {
             let text = i18n['en'][key];
             let vars = text.match(/\{[a-zA-Z0-9_]+\}/g) || [];
@@ -1165,6 +1828,138 @@ setInterval(monitorWidgetConnection, 1000);
                 user: song.user || 'Auto',
                 duration: normalizePositiveInteger(song.duration, 210)
             };
+        }
+
+        function normalizeFavoriteSong(song) {
+            const normalized = normalizeSongForStorage(song);
+            if (!normalized) return null;
+            return {
+                id: normalized.id,
+                title: normalized.title,
+                author: normalized.author,
+                duration: normalized.duration
+            };
+        }
+
+        function loadFavoriteSongs() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(FAVORITE_SONGS_STORAGE_KEY) || '[]');
+                if (!Array.isArray(parsed)) return [];
+                const seen = new Set();
+                return parsed.map(normalizeFavoriteSong).filter(song => {
+                    if (!song || seen.has(song.id)) return false;
+                    seen.add(song.id);
+                    return true;
+                });
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function hydrateFavoriteTitleCache() {
+            favoriteSongs.forEach(song => {
+                if (!song || !song.id) return;
+                titleCache[song.id] = {
+                    title: song.title,
+                    author: song.author,
+                    duration: song.duration
+                };
+            });
+        }
+
+        function saveFavoriteSongs() {
+            if (favoriteSongs.length > 0) localStorage.setItem(FAVORITE_SONGS_STORAGE_KEY, JSON.stringify(favoriteSongs));
+            else localStorage.removeItem(FAVORITE_SONGS_STORAGE_KEY);
+            hydrateFavoriteTitleCache();
+            updateBaseCount();
+            if (baseActionButtonMode === 'ready' || baseActionButtonMode === 'empty') {
+                setBaseActionButtonMode(getBasePoolItems().length > 0 ? 'ready' : 'empty');
+            }
+        }
+
+        function isFavoriteSong(id) {
+            return favoriteSongs.some(song => song.id === id);
+        }
+
+        function getBaseSongInfo(id) {
+            const favorite = favoriteSongs.find(song => song.id === id);
+            if (favorite) return favorite;
+            return titleCache[id] || null;
+        }
+
+        function getBasePoolItems() {
+            const seen = new Set();
+            const items = [];
+
+            favoriteSongs.forEach((song, index) => {
+                if (!song || !song.id || seen.has(song.id)) return;
+                seen.add(song.id);
+                items.push({ id: song.id, info: song, isFavorite: true, favoriteIndex: index });
+            });
+
+            let regularIndex = 1;
+            masterList.forEach(id => {
+                if (!id || seen.has(id)) return;
+                const info = titleCache[id];
+                if (!info) return;
+                seen.add(id);
+                items.push({ id, info, isFavorite: false, originalIndex: regularIndex });
+                regularIndex += 1;
+            });
+
+            return items;
+        }
+
+        function updateBaseCount() {
+            const countEl = document.getElementById('base-count');
+            if (countEl) countEl.innerText = '\u{1F3B5} ' + getBasePoolItems().length;
+        }
+
+        function renderFavoriteButton(songId, onClick) {
+            const active = isFavoriteSong(songId);
+            const label = active ? t('ui_favorite_remove') : t('ui_favorite_add');
+            return `<button class="btn-favorite ${active ? 'is-active' : ''}" draggable="false" onclick="${onClick}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">&#9733;</button>`;
+        }
+
+        function toggleFavoriteSong(song) {
+            const favorite = normalizeFavoriteSong(song);
+            if (!favorite) return;
+            const existingIndex = favoriteSongs.findIndex(item => item.id === favorite.id);
+            const removing = existingIndex !== -1;
+
+            if (removing) {
+                favoriteSongs.splice(existingIndex, 1);
+            } else {
+                favoriteSongs.push(favorite);
+            }
+
+            saveFavoriteSongs();
+            renderBaseList();
+            renderQueue();
+            showToast(t(removing ? 'ui_favorite_removed' : 'ui_favorite_added', { title: favorite.title }), removing ? 'warn' : 'ok');
+        }
+
+        function toggleFavoriteFromBase(id) {
+            const info = getBaseSongInfo(id);
+            if (!info) return;
+            toggleFavoriteSong({ id, title: info.title, author: info.author, duration: info.duration, user: 'Favorite' });
+        }
+
+        function toggleFavoriteFromQueue(index) {
+            const song = playQueue[index];
+            if (!song) return;
+            toggleFavoriteSong(song);
+        }
+
+        function toggleFavoriteFromCurrentSong() {
+            if (!currentSongInfo) return;
+            toggleFavoriteSong(currentSongInfo);
+        }
+
+        function addBaseSongToQueue(id) {
+            const info = getBaseSongInfo(id);
+            if (!info) return;
+            addSongFromChat({ id, title: info.title, author: info.author, duration: info.duration, user: 'Streamer' });
         }
 
         function getQueueSnapshot() {
@@ -1219,19 +2014,45 @@ setInterval(monitorWidgetConnection, 1000);
             else localStorage.removeItem(QUEUE_STORAGE_KEY);
         }
 
+        function updateSongRequestLimitInputStates() {
+            const userLimitInput = document.getElementById('sr-user-limit-input');
+            const globalLimitInput = document.getElementById('sr-global-limit-input');
+            if (userLimitInput) userLimitInput.disabled = !SR_USER_QUEUE_LIMIT_ENABLED;
+            if (globalLimitInput) globalLimitInput.disabled = !SR_GLOBAL_QUEUE_LIMIT_ENABLED;
+        }
+
         function saveSongRequestSettings() {
             const durationInput = document.getElementById('sr-max-duration-input');
             const voteSkipInput = document.getElementById('sr-voteskip-input');
+            const userLimitInput = document.getElementById('sr-user-limit-input');
+            const globalLimitInput = document.getElementById('sr-global-limit-input');
+            const userLimitEnabledInput = document.getElementById('sr-user-limit-enabled-cb');
+            const globalLimitEnabledInput = document.getElementById('sr-global-limit-enabled-cb');
+            const musicCategoryInput = document.getElementById('sr-music-category-cb');
+            if (!durationInput || !voteSkipInput || !userLimitInput || !globalLimitInput || !userLimitEnabledInput || !globalLimitEnabledInput || !musicCategoryInput) return;
             const durationDigitsOnly = durationInput.value.replace(/\D/g, '');
             const voteSkipDigitsOnly = voteSkipInput.value.replace(/\D/g, '');
+            const userLimitDigitsOnly = userLimitInput.value.replace(/\D/g, '');
+            const globalLimitDigitsOnly = globalLimitInput.value.replace(/\D/g, '');
             SR_MAX_DURATION_MINUTES = normalizePositiveInteger(durationDigitsOnly, SR_MAX_DURATION_MINUTES || 15);
             SR_VOTESKIP_REQUIRED = normalizePositiveInteger(voteSkipDigitsOnly, SR_VOTESKIP_REQUIRED || 5);
+            SR_USER_QUEUE_LIMIT = normalizePositiveInteger(userLimitDigitsOnly, SR_USER_QUEUE_LIMIT || 25);
+            SR_GLOBAL_QUEUE_LIMIT = normalizePositiveInteger(globalLimitDigitsOnly, SR_GLOBAL_QUEUE_LIMIT || 100);
+            SR_USER_QUEUE_LIMIT_ENABLED = userLimitEnabledInput.checked;
+            SR_GLOBAL_QUEUE_LIMIT_ENABLED = globalLimitEnabledInput.checked;
             durationInput.value = SR_MAX_DURATION_MINUTES;
             voteSkipInput.value = SR_VOTESKIP_REQUIRED;
-            SR_REQUIRE_MUSIC_CATEGORY = document.getElementById('sr-music-category-cb').checked;
+            userLimitInput.value = SR_USER_QUEUE_LIMIT;
+            globalLimitInput.value = SR_GLOBAL_QUEUE_LIMIT;
+            SR_REQUIRE_MUSIC_CATEGORY = musicCategoryInput.checked;
             localStorage.setItem('ytm_sr_max_duration_minutes', SR_MAX_DURATION_MINUTES.toString());
             localStorage.setItem('ytm_sr_voteskip_required', SR_VOTESKIP_REQUIRED.toString());
+            localStorage.setItem('ytm_sr_user_queue_limit', SR_USER_QUEUE_LIMIT.toString());
+            localStorage.setItem('ytm_sr_global_queue_limit', SR_GLOBAL_QUEUE_LIMIT.toString());
+            localStorage.setItem('ytm_sr_user_queue_limit_enabled', SR_USER_QUEUE_LIMIT_ENABLED ? 'true' : 'false');
+            localStorage.setItem('ytm_sr_global_queue_limit_enabled', SR_GLOBAL_QUEUE_LIMIT_ENABLED ? 'true' : 'false');
             localStorage.setItem('ytm_sr_require_music_category', SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false');
+            updateSongRequestLimitInputStates();
             syncSongRequestSettingsToStreamerBot();
         }
 
@@ -1240,6 +2061,137 @@ setInterval(monitorWidgetConnection, 1000);
             WIDGET_AUDIO_ENABLED_CONFIG = !!(input && input.checked);
             localStorage.setItem('ytm_widget_audio_enabled', WIDGET_AUDIO_ENABLED_CONFIG ? 'true' : 'false');
             updateWidgetUrlDisplay();
+        }
+
+        function getSettingsBackupPayload() {
+            const storageKeys = [
+                'ytm_lang',
+                'ytm_ws_host',
+                'ytm_ws_port',
+                'ytm_ws_pass',
+                'ytm_persist_queue',
+                QUEUE_STORAGE_KEY,
+                FAVORITE_SONGS_STORAGE_KEY,
+                'ytm_sr_max_duration_minutes',
+                'ytm_sr_voteskip_required',
+                'ytm_sr_user_queue_limit',
+                'ytm_sr_global_queue_limit',
+                'ytm_sr_user_queue_limit_enabled',
+                'ytm_sr_global_queue_limit_enabled',
+                'ytm_sr_require_music_category',
+                'ytm_widget_audio_enabled',
+                'ytm_base_playlists',
+                'ytm_banned_songs',
+                'ytm_tutorial_seen'
+            ];
+            const values = {};
+            storageKeys.forEach(key => {
+                const value = localStorage.getItem(key);
+                if (value !== null) values[key] = value;
+            });
+
+            const customMessages = {};
+            const customMessagesDisabled = {};
+            Object.keys(i18n).forEach(lang => {
+                const value = localStorage.getItem('ytm_custom_msgs_' + lang);
+                if (value !== null) customMessages[lang] = value;
+                const disabledValue = localStorage.getItem(CUSTOM_MSGS_DISABLED_PREFIX + lang);
+                if (disabledValue !== null) customMessagesDisabled[lang] = disabledValue;
+            });
+
+            return {
+                type: SETTINGS_BACKUP_TYPE,
+                appVersion: CURRENT_VERSION,
+                exportedAt: new Date().toISOString(),
+                includesApiKey: false,
+                values,
+                customMessages,
+                customMessagesDisabled
+            };
+        }
+
+        function exportSettings() {
+            const payload = getSettingsBackupPayload();
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const date = new Date().toISOString().slice(0, 10);
+            link.href = url;
+            link.download = 'ytm-song-request-settings-' + CURRENT_VERSION.replace(/^v/i, '') + '-' + date + '.json';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            showToast(t('ui_export_done'), 'ok');
+        }
+
+        function chooseSettingsImport() {
+            const input = document.getElementById('settings-import-input');
+            if (!input) return;
+            input.value = '';
+            input.click();
+        }
+
+        function applySettingsBackupPayload(payload) {
+            const allowedKeys = new Set([
+                'ytm_lang',
+                'ytm_ws_host',
+                'ytm_ws_port',
+                'ytm_ws_pass',
+                'ytm_persist_queue',
+                QUEUE_STORAGE_KEY,
+                FAVORITE_SONGS_STORAGE_KEY,
+                'ytm_sr_max_duration_minutes',
+                'ytm_sr_voteskip_required',
+                'ytm_sr_user_queue_limit',
+                'ytm_sr_global_queue_limit',
+                'ytm_sr_user_queue_limit_enabled',
+                'ytm_sr_global_queue_limit_enabled',
+                'ytm_sr_require_music_category',
+                'ytm_widget_audio_enabled',
+                'ytm_base_playlists',
+                'ytm_banned_songs',
+                'ytm_tutorial_seen'
+            ]);
+
+            Object.keys(payload.values || {}).forEach(key => {
+                if (allowedKeys.has(key)) localStorage.setItem(key, String(payload.values[key]));
+            });
+
+            Object.keys(payload.customMessages || {}).forEach(lang => {
+                if (i18n[lang]) localStorage.setItem('ytm_custom_msgs_' + lang, String(payload.customMessages[lang]));
+            });
+
+            Object.keys(payload.customMessagesDisabled || {}).forEach(lang => {
+                if (i18n[lang]) localStorage.setItem(CUSTOM_MSGS_DISABLED_PREFIX + lang, String(payload.customMessagesDisabled[lang]));
+            });
+        }
+
+        function importSettingsFile() {
+            const input = document.getElementById('settings-import-input');
+            const file = input && input.files ? input.files[0] : null;
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const payload = JSON.parse(String(reader.result || ''));
+                    if (!payload || payload.type !== SETTINGS_BACKUP_TYPE || typeof payload.values !== 'object') {
+                        showToast(t('ui_import_invalid'), 'error');
+                        return;
+                    }
+
+                    showConfirm(t('ui_import_confirm'), () => {
+                        applySettingsBackupPayload(payload);
+                        showToast(t('ui_import_done'), 'ok');
+                        setTimeout(() => window.location.reload(), 900);
+                    }, { okText: t('ui_import_settings') });
+                } catch (error) {
+                    showToast(t('ui_import_invalid'), 'error');
+                }
+            };
+            reader.onerror = () => showToast(t('ui_import_invalid'), 'error');
+            reader.readAsText(file);
         }
 
         function setBaseActionButtonMode(mode) {
@@ -1273,12 +2225,19 @@ setInterval(monitorWidgetConnection, 1000);
 
         function syncSongRequestSettingsToStreamerBot() {
             if (!canUseStreamerBotWebsocket()) return;
+            const limitState = getSongRequestLimitStatePayload();
             ws.send(JSON.stringify({
                 request: 'DoAction',
                 action: { name: 'SongRequestSettings' },
                 args: {
                     maxDurationMinutes: SR_MAX_DURATION_MINUTES.toString(),
                     voteSkipRequired: SR_VOTESKIP_REQUIRED.toString(),
+                    userQueueLimit: SR_USER_QUEUE_LIMIT.toString(),
+                    globalQueueLimit: SR_GLOBAL_QUEUE_LIMIT.toString(),
+                    userLimitEnabled: limitState.userLimitEnabled,
+                    globalLimitEnabled: limitState.globalLimitEnabled,
+                    globalRequestCount: limitState.globalRequestCount,
+                    userRequestCountsJson: limitState.userRequestCountsJson,
                     requireMusicCategory: SR_REQUIRE_MUSIC_CATEGORY ? 'true' : 'false'
                 },
                 id: 'SongRequestSettings'
@@ -1293,21 +2252,38 @@ setInterval(monitorWidgetConnection, 1000);
                 let defaultTxt = i18n[currentLang][k] || i18n['en'][k];
                 let currentTxt = customMsgs[k] !== undefined ? customMsgs[k] : defaultTxt;
                 let vars = getVarsDesc(k);
+                let isEnabled = !disabledCustomMsgs[k];
                 
                 html += `
-                <div class="msg-setting-item">
+                <div class="msg-setting-item ${isEnabled ? '' : 'is-disabled'}">
                     <div class="msg-setting-header">
                         <span class="msg-key">${k}</span>
                         <span class="msg-vars">${vars}</span>
                     </div>
                     <div class="msg-setting-body">
-                        <input type="text" id="msg_input_${k}" value="${currentTxt.replace(/"/g, '&quot;')}" maxlength="500">
+                        <label class="msg-enable-switch" title="${escapeHtml(isEnabled ? t('ui_msg_enabled') : t('ui_msg_disabled'))}">
+                            <input type="checkbox" id="msg_enabled_${k}" ${isEnabled ? 'checked' : ''} onchange="toggleCustomMsgEnabled('${k}')">
+                            <span class="queue-switch-track" aria-hidden="true"></span>
+                        </label>
+                        <input type="text" id="msg_input_${k}" value="${escapeHtml(currentTxt)}" maxlength="500">
                         <button class="btn-msg-action" onclick="saveCustomMsg('${k}')" title="Save">💾</button>
                         <button class="btn-msg-action btn-msg-reset" onclick="resetCustomMsg('${k}')" title="Restore Default">🔄</button>
                     </div>
                 </div>`;
             });
             document.getElementById('msg-settings-list').innerHTML = html;
+        }
+
+        function saveCustomMsgDisabledState() {
+            localStorage.setItem(CUSTOM_MSGS_DISABLED_PREFIX + currentLang, JSON.stringify(disabledCustomMsgs));
+        }
+
+        function toggleCustomMsgEnabled(key) {
+            const input = document.getElementById(`msg_enabled_${key}`);
+            if (input && input.checked) delete disabledCustomMsgs[key];
+            else disabledCustomMsgs[key] = true;
+            saveCustomMsgDisabledState();
+            renderSettingsMessages();
         }
 
         function saveCustomMsg(key) {
@@ -1497,7 +2473,7 @@ setInterval(monitorWidgetConnection, 1000);
                 if (player && typeof player.getPlayerState === 'function') fetchFullPlaylistFromAPI();
                 else setBaseActionButtonMode('downloading');
             } else {
-                alert("Invalid API Key!");
+                showToast(t('ui_api_invalid'), 'error');
             }
         }
 
@@ -1560,9 +2536,16 @@ setInterval(monitorWidgetConnection, 1000);
             const copyText = document.getElementById("sb-import-code");
             copyText.select();
             copyText.setSelectionRange(0, 99999); 
-            navigator.clipboard.writeText(copyText.value).then(() => {
-                alert("Copied to clipboard!");
-            });
+            const done = () => showToast(t('ui_copied_clipboard'), 'ok');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(copyText.value).then(done).catch(() => {
+                    document.execCommand('copy');
+                    done();
+                });
+            } else {
+                document.execCommand('copy');
+                done();
+            }
         }
 
         let savedPlaylists = JSON.parse(localStorage.getItem('ytm_base_playlists')) || [];
@@ -1716,12 +2699,12 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function clearAllBans() {
-            if(confirm("Are you sure?")) {
+            showConfirm(t('ui_clear_bans_confirm'), () => {
                 bannedSongs = [];
                 localStorage.removeItem('ytm_banned_songs');
                 log("🧹 Blacklist cleared!", "warn");
                 renderBanList();
-            }
+            }, { okText: t('ui_clear_bans') });
         }
 
         function openBanList() { renderBanList(); document.getElementById('ban-modal').style.display = 'flex'; }
@@ -1915,6 +2898,7 @@ setInterval(monitorWidgetConnection, 1000);
             const prefix = options.prefix || 'now-playing';
             const dropAttrs = options.dropTarget ? 'ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)"' : '';
             const banButton = options.showBan ? '<button class="np-card-ban" onclick="banCurrentSong()" title="Ban">&#128296;</button>' : '';
+            const favoriteButton = options.showFavorite ? renderFavoriteButton(song.id, 'toggleFavoriteFromCurrentSong()').replace('btn-favorite', 'btn-favorite np-card-favorite') : '';
             const title = escapeHtml(song.title || 'Unknown Title');
             const author = escapeHtml(cleanAuthorName(song.author || 'YouTube'));
             const user = song.user === 'Auto' ? 'Auto' : escapeHtml(song.user || 'Viewer');
@@ -1934,12 +2918,20 @@ setInterval(monitorWidgetConnection, 1000);
                     '</div>' +
                 '</div>' +
                 '<span class="np-card-user">' + user + '</span>' +
+                favoriteButton +
                 banButton +
                 '<div class="np-card-progress"><div id="' + prefix + '-progress" class="np-card-progress-fill"></div></div>' +
             '</div>';
         }
 
-        function getNowPlayingWidgetState() {
+        function getNowPlayingWidgetState(options = {}) {
+            if (!options.ignoreWidgetTestState && widgetTestState) {
+                if (Date.now() < widgetTestStateUntil) {
+                    return { ...widgetTestState, updatedAt: Date.now() };
+                }
+                widgetTestState = null;
+            }
+
             if (!currentSongInfo || currentSongStopped) {
                 return { type: 'NOW_PLAYING_STATE', hasSong: false, currentTime: 0, duration: 0, progress: 0, isPlaying: false, isStopped: !!currentSongStopped, waveHold: false, updatedAt: Date.now() };
             }
@@ -2042,23 +3034,23 @@ setInterval(monitorWidgetConnection, 1000);
         function publishNowPlayingWidgetStartupBurst() {
             nowPlayingWidgetStartupBurstTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
             nowPlayingWidgetStartupBurstTimeouts = [0, 350, 1200, 3000].map(delay => setTimeout(() => {
-                publishNowPlayingWidgetState(getNowPlayingWidgetState(), true);
+                publishNowPlayingWidgetState(getActiveWidgetPublishState(), true);
             }, delay));
         }
 
         function updateNowPlayingProgress() {
-            const state = getNowPlayingWidgetState();
+            const state = getNowPlayingWidgetState({ ignoreWidgetTestState: true });
             updateNowPlayingCardProgress('panel-now-playing', state);
-            publishNowPlayingWidgetState(state);
+            publishNowPlayingWidgetState(getActiveWidgetPublishState());
         }
 
         function triggerNowPlayingWaveEffect(effect, durationMs = 520) {
             nowPlayingWaveEffect = effect;
             nowPlayingWaveEffectUntil = Date.now() + durationMs;
             nowPlayingWaveEffectId = (nowPlayingWaveEffectId + 1) % 1000000;
-            const state = getNowPlayingWidgetState();
+            const state = getNowPlayingWidgetState({ ignoreWidgetTestState: true });
             updateNowPlayingCardProgress('panel-now-playing', state);
-            publishNowPlayingWidgetState(state, true);
+            publishNowPlayingWidgetState(getActiveWidgetPublishState(), true);
         }
 
         function clearNowPlayingWaveEffect() {
@@ -2218,13 +3210,14 @@ setInterval(monitorWidgetConnection, 1000);
         async function fetchFullPlaylistFromAPI() {
             if(savedPlaylists.length === 0) {
                 document.getElementById('base-list').innerHTML = `<div class="ex-style-068">${t('ui_empty_playlists')}</div>`;
-                document.getElementById('base-count').innerText = `🎵 0`;
-                setBaseActionButtonMode('empty');
+                updateBaseCount();
+                setBaseActionButtonMode(favoriteSongs.length > 0 ? 'ready' : 'empty');
                 return;
             }
 
             setBaseActionButtonMode('downloading');
             masterList = []; titleCache = {};
+            hydrateFavoriteTitleCache();
 
             try {
                 for(let pObj of savedPlaylists) {
@@ -2273,8 +3266,8 @@ setInterval(monitorWidgetConnection, 1000);
                 }
                 
                 log(`Loaded ${masterList.length} tracks.`);
-                document.getElementById('base-count').innerText = `🎵 ${masterList.length}`;
-                setBaseActionButtonMode(masterList.length > 0 ? 'ready' : 'empty');
+                updateBaseCount();
+                setBaseActionButtonMode(getBasePoolItems().length > 0 ? 'ready' : 'empty');
                 renderBaseList();
             } catch (e) {
                 log("Error: " + e.message, "error");
@@ -2283,22 +3276,22 @@ setInterval(monitorWidgetConnection, 1000);
         }
 
         function buildBasePlaybackQueue(shuffle = false) {
-            const ids = [...masterList];
+            const items = getBasePoolItems();
             if (shuffle) {
-                for (let i = ids.length - 1; i > 0; i--) {
+                for (let i = items.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
-                    [ids[i], ids[j]] = [ids[j], ids[i]];
+                    [items[i], items[j]] = [items[j], items[i]];
                 }
             }
 
-            return ids.map(id => {
-                let info = titleCache[id];
-                return info ? { id: id, title: info.title, author: info.author, user: "Auto", duration: info.duration } : null;
+            return items.map(item => {
+                let info = item.info;
+                return info ? { id: item.id, title: info.title, author: info.author, user: "Auto", duration: info.duration } : null;
             }).filter(Boolean);
         }
 
         function startBasePlayback(mode = basePlaybackMode) {
-            if (masterList.length === 0) return;
+            if (getBasePoolItems().length === 0) return;
             basePlaybackMode = mode === 'shuffle' ? 'shuffle' : 'ordered';
             log(basePlaybackMode === 'shuffle' ? "Shuffling base playlists..." : "Starting base playlists in loaded order...");
             playQueue = buildBasePlaybackQueue(basePlaybackMode === 'shuffle');
@@ -2383,7 +3376,7 @@ setInterval(monitorWidgetConnection, 1000);
         function togglePlay() { 
             if (!currentSongInfo) {
                 if (playQueue.length === 0) {
-                    if (masterList.length > 0) startBasePlayback(basePlaybackMode);
+                    if (getBasePoolItems().length > 0) startBasePlayback(basePlaybackMode);
                 } else {
                     playNext();
                 }
@@ -2411,7 +3404,7 @@ setInterval(monitorWidgetConnection, 1000);
         function playFromChat(user) {
             if (!currentSongInfo) {
                 if (playQueue.length === 0) {
-                    if (masterList.length > 0) {
+                    if (getBasePoolItems().length > 0) {
                         sendChatMessage(t('msg_base_play', {user: user}));
                         startBasePlayback(basePlaybackMode);
                     } else {
@@ -2500,12 +3493,79 @@ setInterval(monitorWidgetConnection, 1000);
             fetchAndAddById(videoId, "Streamer");
         }
 
+        function getRequestUserKey(user) {
+            return String(user || '').trim().toLowerCase();
+        }
+
+        function isViewerRequestSong(song) {
+            const userKey = getRequestUserKey(song && song.user);
+            return !!userKey && userKey !== 'auto' && userKey !== 'streamer';
+        }
+
+        function getActiveViewerRequestSongs() {
+            return [currentSongInfo, ...playQueue].filter(isViewerRequestSong);
+        }
+
+        function getSongRequestLimitCounts(user) {
+            const userKey = getRequestUserKey(user);
+            const activeRequests = getActiveViewerRequestSongs();
+            return {
+                user: activeRequests.filter(song => getRequestUserKey(song.user) === userKey).length,
+                global: activeRequests.length
+            };
+        }
+
+        function getSongRequestLimitStatePayload() {
+            const userCounts = {};
+            const activeRequests = getActiveViewerRequestSongs();
+            activeRequests.forEach(song => {
+                const userKey = getRequestUserKey(song.user);
+                if (!userKey) return;
+                userCounts[userKey] = (userCounts[userKey] || 0) + 1;
+            });
+
+            return {
+                userLimitEnabled: SR_USER_QUEUE_LIMIT_ENABLED ? 'true' : 'false',
+                globalLimitEnabled: SR_GLOBAL_QUEUE_LIMIT_ENABLED ? 'true' : 'false',
+                globalRequestCount: activeRequests.length.toString(),
+                userRequestCountsJson: JSON.stringify(userCounts)
+            };
+        }
+
+        function canAcceptSongRequestWithinLimits(songObj) {
+            if (!isViewerRequestSong(songObj)) return true;
+            const counts = getSongRequestLimitCounts(songObj.user);
+            const userLimit = Math.max(1, SR_USER_QUEUE_LIMIT || 25);
+            const globalLimit = Math.max(1, SR_GLOBAL_QUEUE_LIMIT || 100);
+
+            if (SR_USER_QUEUE_LIMIT_ENABLED && counts.user >= userLimit) {
+                sendChatMessage(t('msg_sr_user_limit', {
+                    user: songObj.user,
+                    count: counts.user,
+                    limit: userLimit
+                }));
+                return false;
+            }
+
+            if (SR_GLOBAL_QUEUE_LIMIT_ENABLED && counts.global >= globalLimit) {
+                sendChatMessage(t('msg_sr_global_limit', {
+                    user: songObj.user,
+                    count: counts.global,
+                    limit: globalLimit
+                }));
+                return false;
+            }
+
+            return true;
+        }
+
         function addSongFromChat(songObj, force = false) {
             if(songObj.author) songObj.author = cleanAuthorName(songObj.author);
             if (!force && songObj.user !== "Streamer" && songObj.duration && songObj.duration > SR_MAX_DURATION_MINUTES * 60) {
                 sendChatMessage(t('msg_err_long', {user: songObj.user, info: Math.ceil(songObj.duration / 60), limit: SR_MAX_DURATION_MINUTES}));
                 return;
             }
+            if (!force && !canAcceptSongRequestWithinLimits(songObj)) return;
             songObj.isNew = true;
 
             let insertIndex = playQueue.findIndex(song => song.user === 'Auto');
@@ -2539,13 +3599,15 @@ setInterval(monitorWidgetConnection, 1000);
 
         function clearQueueWithConfirm() {
             if (playQueue.length === 0) return;
-            if (!confirm(t('ui_clear_queue_confirm', {count: playQueue.length}))) return;
-            playQueue = [];
-            renderQueue();
-            log("Cleared queued tracks.", "warn");
+            showConfirm(t('ui_clear_queue_confirm', {count: playQueue.length}), () => {
+                playQueue = [];
+                renderQueue();
+                log("Cleared queued tracks.", "warn");
+            }, { okText: t('ui_clear_queue') });
         }
 
         function sendChatMessage(msg) {
+            if (!msg || !String(msg).trim()) return;
             if(canUseStreamerBotWebsocket()) {
                 ws.send(JSON.stringify({"request": "DoAction", "action": { "name": "ChatMessage" }, "args": { "message": msg }, "id": "MsgOut" }));
             }
@@ -2671,6 +3733,38 @@ setInterval(monitorWidgetConnection, 1000);
         }
         function handleDragEnd(e) { renderQueue(); }
 
+        function handleFavoriteDragStart(e) {
+            favoriteDragSourceIndex = parseInt(e.currentTarget.getAttribute('data-favorite-index'), 10);
+            e.currentTarget.style.opacity = '0.4';
+        }
+
+        function handleFavoriteDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.style.borderTop = '3px solid var(--gold)';
+        }
+
+        function handleFavoriteDragLeave(e) {
+            e.currentTarget.style.borderTop = '';
+        }
+
+        function handleFavoriteDrop(e) {
+            e.preventDefault();
+            e.currentTarget.style.borderTop = '';
+            const targetIndex = parseInt(e.currentTarget.getAttribute('data-favorite-index'), 10);
+            if (Number.isInteger(favoriteDragSourceIndex) && Number.isInteger(targetIndex) && favoriteDragSourceIndex !== targetIndex) {
+                const draggedFavorite = favoriteSongs.splice(favoriteDragSourceIndex, 1)[0];
+                favoriteSongs.splice(targetIndex, 0, draggedFavorite);
+                saveFavoriteSongs();
+            }
+            favoriteDragSourceIndex = null;
+            renderBaseList();
+        }
+
+        function handleFavoriteDragEnd(e) {
+            favoriteDragSourceIndex = null;
+            renderBaseList();
+        }
+
         function renderQueue() {
             const queueContainer = document.getElementById('queue-list');
             const nowPlayingBox = document.getElementById('now-playing-content');
@@ -2687,13 +3781,18 @@ setInterval(monitorWidgetConnection, 1000);
             document.getElementById('queue-time').innerText = `⏱️ ${h > 0 ? h + 'h ' : ''}${m}m ${s}s`;
 
             if (currentSongInfo) {
-                nowPlayingBox.innerHTML = renderNowPlayingCard(currentSongInfo, { prefix: 'panel-now-playing', dropTarget: true, showBan: true, className: 'panel-card' });
+                nowPlayingBox.innerHTML = renderNowPlayingCard(currentSongInfo, { prefix: 'panel-now-playing', dropTarget: true, showBan: true, showFavorite: true, className: 'panel-card' });
                 applyCoverThemeToNowPlayingCard(document.getElementById('panel-now-playing-card'), 'https://i.ytimg.com/vi/' + currentSongInfo.id + '/mqdefault.jpg');
             } else nowPlayingBox.innerHTML = `<div class="ex-style-013">${t('ui_no_song')}</div>`;
 
             updateNowPlayingProgress();
 
-            if (playQueue.length === 0) { queueContainer.innerHTML = `<div class="ex-style-071">---</div>`; savePersistedQueue(); return; }
+            if (playQueue.length === 0) {
+                queueContainer.innerHTML = `<div class="ex-style-071">---</div>`;
+                savePersistedQueue();
+                syncSongRequestSettingsToStreamerBot();
+                return;
+            }
             
             queueContainer.innerHTML = playQueue.slice(0, 40).map((song, i) => {
                 let typeClass = ""; let badgeClass = "badge";
@@ -2701,7 +3800,6 @@ setInterval(monitorWidgetConnection, 1000);
                     if (song.user === "Streamer") { typeClass = "manual"; badgeClass = "badge badge-manual"; } 
                     else { typeClass = "request"; badgeClass = "badge badge-user"; }
                 }
-                if (i === 0) typeClass += " next";
                 let animClass = song.isNew ? "animate-in" : "";
                 if (song.isNew) setTimeout(() => { song.isNew = false; }, 500); 
 
@@ -2711,18 +3809,20 @@ setInterval(monitorWidgetConnection, 1000);
                     <div class="track-num">${i + 2}.</div>
                     <img src="https://i.ytimg.com/vi/${song.id}/default.jpg">
                     <div class="track-info">
-                        <div class="track-title">${song.title}</div>
+                        <div class="track-title">${escapeHtml(song.title)}</div>
                         <div class="track-meta">
-                            ${song.user !== 'Auto' ? `<span class="${badgeClass}">👤 ${song.user}</span>` : `<span class="badge badge-auto">🤖 Auto</span>`}
-                            <span class="badge badge-time">⏱️ ${formatTime(song.duration)}</span>
-                            <span class="badge badge-author">🎤 ${song.author}</span>
+                            <span class="badge badge-time">${formatTime(song.duration)}</span>
+                            ${song.user !== 'Auto' ? `<span class="${badgeClass}">👤 ${escapeHtml(song.user)}</span>` : `<span class="badge badge-auto">🤖 Auto</span>`}
+                            <span class="badge badge-author">🎤 ${escapeHtml(song.author)}</span>
                         </div>
                     </div>
+                    ${renderFavoriteButton(song.id, `toggleFavoriteFromQueue(${i})`)}
                     <button class="btn-ban" onclick="banSong(${i})" title="Ban">🔨</button>
                     <button class="btn-remove" onclick="removeSongFromUI(${i})" title="Remove">❌</button>
                 </div>`;
             }).join('');
             savePersistedQueue();
+            syncSongRequestSettingsToStreamerBot();
             updateNowPlayingProgress();
         }
 
@@ -2730,39 +3830,53 @@ setInterval(monitorWidgetConnection, 1000);
             const container = document.getElementById('base-list');
             const searchInput = document.getElementById('base-search');
             const query = searchInput ? searchInput.value.toLowerCase().trim() : "";
+            const basePoolItems = getBasePoolItems();
+            updateBaseCount();
 
-            let filteredList = masterList;
+            let filteredList = basePoolItems;
             
             if (query !== "") {
-                filteredList = masterList.filter(id => {
-                    let info = titleCache[id];
+                filteredList = basePoolItems.filter(item => {
+                    let info = item.info;
                     if(!info) return false;
                     let searchStr = (info.title + " " + info.author).toLowerCase();
                     return searchStr.includes(query);
                 });
             }
 
-            if (filteredList.length === 0 && masterList.length > 0) {
+            if (filteredList.length === 0 && basePoolItems.length > 0) {
                 container.innerHTML = `<div class="ex-style-068">0 results</div>`;
                 return;
             }
 
-            container.innerHTML = filteredList.map((id) => {
-                let info = titleCache[id];
-                let originalIndex = masterList.indexOf(id) + 1; 
+            if (filteredList.length === 0) {
+                container.innerHTML = `<div class="ex-style-068">${t('ui_empty_playlists')}</div>`;
+                return;
+            }
+
+            container.innerHTML = filteredList.map((item) => {
+                let id = item.id;
+                let info = item.info;
+                let trackNumber = item.isFavorite ? `${item.favoriteIndex + 1}.` : `${item.originalIndex}.`;
+                let favoriteClass = item.isFavorite ? ' favorite-track' : '';
+                let favoriteDragAttrs = item.isFavorite ? ` draggable="true" data-favorite-index="${item.favoriteIndex}" ondragstart="handleFavoriteDragStart(event)" ondragover="handleFavoriteDragOver(event)" ondragleave="handleFavoriteDragLeave(event)" ondrop="handleFavoriteDrop(event)" ondragend="handleFavoriteDragEnd(event)"` : '';
+                let favoriteHandle = item.isFavorite ? '<div class="favorite-drag-handle" aria-hidden="true">☰</div>' : '';
                 
                 return `
-                <div class="q-item compact">
-                    <div class="track-num" title="Base ID">${originalIndex}.</div>
+                <div class="q-item compact${favoriteClass}"${favoriteDragAttrs}>
+                    ${favoriteHandle}
+                    <div class="track-num" title="Base ID">${trackNumber}</div>
                     <img src="https://i.ytimg.com/vi/${id}/default.jpg">
                     <div class="track-info">
-                        <div class="track-title" title="${info.title}">${info.title}</div>
+                        <div class="track-title" title="${escapeHtml(info.title)}">${escapeHtml(info.title)}</div>
                         <div class="track-meta">
-                            <span class="badge badge-time">⏱️ ${formatTime(info.duration)}</span>
-                            <span class="badge badge-author">🎤 ${info.author}</span>
+                            <span class="badge badge-time">${formatTime(info.duration)}</span>
+                            <span class="badge badge-author">🎤 ${escapeHtml(info.author)}</span>
+                            ${item.isFavorite ? `<span class="badge badge-favorite">${t('ui_favorites_label')}</span>` : ''}
                         </div>
                     </div>
-                    <button class="btn-add" onclick="fetchAndAddById('${id}', 'Streamer')" title="Add">+</button>
+                    ${renderFavoriteButton(id, `toggleFavoriteFromBase('${id}')`)}
+                    <button class="btn-add" onclick="addBaseSongToQueue('${id}')" title="Add">+</button>
                 </div>`;
             }).join('');
         }
@@ -2804,6 +3918,7 @@ setInterval(monitorWidgetConnection, 1000);
             wsStatusKey = 'ui_bot_connected';
             wsStatusColor = '#00ff88';
             renderWebsocketStatus();
+            scheduleImportStatusCheck();
         }
 
         function setWebsocketDisconnected() {
@@ -2811,6 +3926,9 @@ setInterval(monitorWidgetConnection, 1000);
             wsStatusKey = 'ui_bot_disconnected';
             wsStatusColor = 'var(--red)';
             renderWebsocketStatus();
+            setImportStatus('unknown');
+            resolveImportDiagnosticsWaiters(null);
+            resolveStreamerBotRequestWaiters(null);
         }
 
         function setWebsocketAuthFailed(message = "WebSocket Authentication Failed!") {
@@ -2818,6 +3936,9 @@ setInterval(monitorWidgetConnection, 1000);
             wsStatusKey = 'ui_bot_auth_fail';
             wsStatusColor = 'var(--red)';
             renderWebsocketStatus();
+            setImportStatus('unknown');
+            resolveImportDiagnosticsWaiters(null);
+            resolveStreamerBotRequestWaiters(null);
             log(`🔴 ${message}`, "error");
         }
 
@@ -2879,6 +4000,8 @@ setInterval(monitorWidgetConnection, 1000);
                         return;
                     }
 
+                    if (resolveStreamerBotRequest(raw)) return;
+
                     if (raw.id === "Sub") return;
                     
                     if (raw.id === "auth") {
@@ -2897,7 +4020,10 @@ setInterval(monitorWidgetConnection, 1000);
                     else if (raw.type) inner = raw;
 
                     if (inner) {
-                        if (inner.type === "SONG_REQUEST") {
+                        if (inner.type === "IMPORT_DIAGNOSTICS") {
+                            handleImportDiagnosticsPayload(inner);
+                        }
+                        else if (inner.type === "SONG_REQUEST") {
                             if (!isSrEnabled) sendChatMessage(t('msg_sr_disabled', {user: inner.user}));
                             else if (bannedSongs.some(b => b.id === inner.id)) sendChatMessage(t('msg_sr_banned', {user: inner.user}));
                             else {
@@ -2925,9 +4051,19 @@ setInterval(monitorWidgetConnection, 1000);
                                 case "NOT_FOUND": msg += t('msg_err_not_found', {user: inner.user, info: inner.extraInfo}); break;
                                 case "TOO_LONG": msg += t('msg_err_long', {user: inner.user, info: Math.floor(parseInt(inner.extraInfo)/60), limit: SR_MAX_DURATION_MINUTES}); break;
                                 case "NOT_MUSIC": msg += t('msg_err_cat', {user: inner.user, info: inner.extraInfo}); break;
+                                case "USER_LIMIT": {
+                                    const [count, limit] = String(inner.extraInfo || '').split('|');
+                                    msg += t('msg_sr_user_limit', {user: inner.user, count: count || '?', limit: limit || SR_USER_QUEUE_LIMIT});
+                                    break;
+                                }
+                                case "GLOBAL_LIMIT": {
+                                    const [count, limit] = String(inner.extraInfo || '').split('|');
+                                    msg += t('msg_sr_global_limit', {user: inner.user, count: count || '?', limit: limit || SR_GLOBAL_QUEUE_LIMIT});
+                                    break;
+                                }
                                 case "API_ERROR": msg += t('msg_err_api', {user: inner.user}); break;
                             }
-                            sendChatMessage(msg);
+                            if (msg) sendChatMessage(msg);
                         }
                         else if (inner.type === "SR_SEARCHING") {
                             sendChatMessage(t('msg_searching', {user: inner.user}));
@@ -2955,6 +4091,7 @@ Object.assign(window, {
     onYouTubeIframeAPIReady,
     saveCustomMsg,
     resetCustomMsg,
+    toggleCustomMsgEnabled,
     removeBasePlaylist,
     unbanSong,
     handleDragStart,
@@ -2962,6 +4099,11 @@ Object.assign(window, {
     handleDragLeave,
     handleDrop,
     handleDragEnd,
+    handleFavoriteDragStart,
+    handleFavoriteDragOver,
+    handleFavoriteDragLeave,
+    handleFavoriteDrop,
+    handleFavoriteDragEnd,
     handlePlaylistDragStart,
     handlePlaylistDragOver,
     handlePlaylistDragLeave,
@@ -2970,6 +4112,10 @@ Object.assign(window, {
     banCurrentSong,
     banSong,
     removeSongFromUI,
+    toggleFavoriteFromBase,
+    toggleFavoriteFromQueue,
+    toggleFavoriteFromCurrentSong,
+    addBaseSongToQueue,
     fetchAndAddById
 });
 }

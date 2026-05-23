@@ -1,3 +1,33 @@
+Release v1.2.3
+📜 Changelog 23.05.2026
+
+NEW Added local favorites with star buttons on base tracks, queued tracks, and the current song; favorites stay at the top of the left panel and are included in START/SHUFFLE.
+NEW Added per-message enable switches in custom chat message settings so each bot response can be fully disabled without deleting its text.
+NEW Added configurable active !sr limits: per-user requests default to 25 and the global viewer request pool defaults to 100, with translated chat warnings when a limit is reached.
+NEW Added settings export/import backup for playlists, bans, custom chat messages, WebSocket settings, request limits, queue persistence, favorites and disabled custom-message states and widget settings. The YouTube API key is intentionally skipped.
+NEW Added a diagnostics panel for WebSocket status, Streamer.bot import version, widget bridge, widget state, request-limit sync, and API key presence.
+NEW Added automatic Streamer.bot import checking with a clear "import required" warning that lists missing or outdated parts.
+NEW Added an OBS widget test button that sends a temporary test card to the widget without changing the real queue.
+NEW Added per-user and global request-limit switches, disabled by default, with saved state across refreshes.
+CHANGE Replaced native browser alert/confirm popups with in-app confirmation and toast messages.
+CHANGE Updated the Streamer.bot import package with a new YtmImportDiagnostics action.
+CHANGE Active per-user and global !sr limits can be checked before YouTube search.
+CHANGE Import-required messages now point users to HELP as the place to copy the current Streamer.bot import code.
+CHANGE Split the Streamer.bot import version from the page version. The current import is v1.2.3-I3 for page v1.2.3.
+CHANGE Added the import version to the footer and tightened the footer layout so holiday messages can wrap without pushing the version text out of place.
+CHANGE Diagnostics now checks required actions, commands; including missing or disabled components.
+CHANGE Removed the special highlight from the first queued track so it keeps the color from its add source.
+CHANGE Stabilized track thumbnails, the center now-playing title area, and list action button sizing so panels no longer jump with uneven covers or long titles.
+CHANGE Unified left and right song cards with fixed thumbnail slots, compact action columns, and consistent clipped badges.
+CHANGE Rebalanced song card metadata into a more compact single-line badge layout for duration, artist, source, and favorites.
+CHANGE Moved song numbering into a small top-left corner badge so drag handles and track details have more room.
+CHANGE Softened the corner song number styling so it blends into the track cards.
+CHANGE Moved custom bot message enable switches to the left of each editable message field.
+FIX Added a single-instance audio lock for OBS widget audio so duplicate widget Browser Sources with audio enabled mute their extra hidden players.
+FIX Reordered !sr validation for title searches: request-count limits now reject before search, while duration and music-category checks still run after the track is found.
+FIX Removed live queue checks from import diagnostics because Streamer.bot does not reliably return that list.
+FIX Made confirmation dialogs appear above the blocked-tracks manager.
+
 Release v1.2.2
 📜 Changelog 21.05.2026
 
