@@ -1,3 +1,17 @@
+Release v1.2.4
+Changelog 31.05.2026
+
+NEW Added viewer request history between Clear queue and Save queue, with unique chat-requested songs, search, user/date filters, favorite support, and quick add back to queue.
+NEW Added a top brand bar with favicon and the project name.
+CHANGE Renamed the project from YTM Song Request to Better Song Request.
+CHANGE Updated page version to v1.2.4 and split Streamer.bot import numbering to v1.0.3.
+CHANGE Updated HELP/tutorial and README default HTTP folder examples from ytm to betterSongRequest.
+CHANGE Added status emoji prefixes to the Song Request on/off chat messages in every language.
+CHANGE Footer import version now matches the import metadata exactly, without an extra v prefix.
+CHANGE Updated HELP and README HTTP folder examples to betterSongRequest to match Streamer.bot casing.
+CHANGE Settings backup now includes viewer history.
+FIX Repaired mojibake in static fallback UI text, language names, emojis, and README headings.
+
 Release v1.2.3
 📜 Changelog 23.05.2026
 
